@@ -334,7 +334,12 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   
   if (res && res.status === 'success' && res.data?.attribute) {
     const attr = res.data.attribute;
-    const remaining = attr.preCouponBalance?.totalCoupon ?? 0;
+    let remaining = count - 1;
+    if (attr.toTohBalance?.totalCoupon !== undefined) remaining = attr.toTohBalance.totalCoupon;
+    else if (attr.couponBalance?.totalCoupon !== undefined) remaining = attr.couponBalance.totalCoupon;
+    else if (attr.preCouponBalance?.totalCoupon !== undefined && attr.preCouponBalance?.totalCoupon < count) remaining = attr.preCouponBalance.totalCoupon;
+    if (remaining < 0) remaining = 0;
+
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
@@ -400,7 +405,10 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     }
     if (!prize) prize = attr.prizeAmountText || "ဆုလက်ဆောင်";
     
-    const remaining = attr.couponBalance ?? 0;
+    let remaining = count - 1;
+    if (typeof attr.couponBalance === 'number' && attr.couponBalance < count) remaining = attr.couponBalance;
+    if (remaining < 0) remaining = 0;
+
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
