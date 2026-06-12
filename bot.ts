@@ -703,6 +703,8 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   }
 
   let claimId = null;
+  let pointsToClaim: string | null = null;
+  
   if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
     const isClaimedText = (lbl: string) => {
       if (!lbl) return false;
@@ -715,7 +717,23 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
       item.label && 
       !isClaimedText(item.label)
     );
-    if (claimableItem) claimId = claimableItem.id;
+    
+    if (claimableItem) {
+        claimId = claimableItem.id;
+        if (claimableItem.point) {
+            pointsToClaim = String(claimableItem.point);
+        } else if (claimableItem.label) {
+            const match = claimableItem.label.match(/(\d+)\s*points?/i);
+            if (match) {
+                pointsToClaim = match[1];
+            } else {
+                const numMatch = claimableItem.label.match(/\d+/);
+                if (numMatch) {
+                    pointsToClaim = numMatch[0];
+                }
+            }
+        }
+    }
   }
   
   if (!claimId) {
@@ -723,24 +741,41 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
     return ctx.reply("✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
   }
   
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  
+  const pointText = pointsToClaim ? String(pointsToClaim) : "Daily Point";
+  await ctx.reply(`ရယူနိုင်သော Daily Point - ${pointText}`, Markup.inlineKeyboard([
+      [Markup.button.callback('ရယူမည်', `claim_point_${claimId}`)]
+  ]));
+});
+
+bot.action(/claim_point_(.+)/, async (ctx) => {
+  const claimId = ctx.match[1];
+  const sess = await getSession(ctx.from?.id);
+  if (!sess) {
+    await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
+    return;
+  }
+  
+  await ctx.answerCbQuery();
+  await ctx.editMessageText("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
+
   const bodyObj = { id: claimId };
   const claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
   
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
   if (claimRes?._authFailed) {
-      return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+      return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
   }
 
   if (claimRes && claimRes.status === 'success') {
     const msg = claimRes.data?.attribute?.message || "အောင်မြင်ပါတယ်ဗျ။";
-    await ctx.reply(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
+    await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
     let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
     if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
         errMsg = claimRes.errors.message.title + " - " + errMsg;
     }
-    await ctx.reply(`❌ ${errMsg}`);
+    await ctx.editMessageText(`❌ ${errMsg}`);
   }
 });
 
