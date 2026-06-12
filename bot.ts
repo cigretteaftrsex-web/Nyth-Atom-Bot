@@ -692,6 +692,9 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
   
+  // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  
   const listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
   if (listRes?._authFailed) {
