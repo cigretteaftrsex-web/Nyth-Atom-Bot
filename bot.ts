@@ -861,13 +861,41 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   if (!claimId) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    let msg = "✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။\n\n(Api data update မဖြစ်သေးရင် ခဏနေမှ ထပ်စမ်းကြည့်ပါ)";
-    if (allItemsDebug.length > 0) {
-        // limit to last 20 items to avoid message too long
-        msg += `\n\n📌 <b>Current Tasks Status:</b>\n` + allItemsDebug.slice(0, 20).join('\n');
+    
+    let lastClaimedDate = "";
+    for (const item of allItems) {
+         if (item.claim_date) {
+             lastClaimedDate = String(item.claim_date).replace('|', ' ');
+             // Since list items are usually sorted newest first, the first claim_date we see in the lists is mostly the latest
+             // Wait, dbV1/V2 items come first in allItems. If they have claim_date, we take it.
+         }
     }
+    
+    // To ensure we get the absolute latest if they are in standard format "DD/MMM/YYYY|hh:mm A"
+    try {
+        let maxTs = 0;
+        let latestDateStr = "";
+        for (const item of allItems) {
+             if (item.claim_date) {
+                 const dStr = String(item.claim_date).replace('|', ' ');
+                 const ts = Date.parse(dStr);
+                 if (!isNaN(ts) && ts > maxTs) {
+                     maxTs = ts;
+                     latestDateStr = dStr;
+                 }
+             }
+        }
+        if (latestDateStr) {
+             lastClaimedDate = latestDateStr;
+        }
+    } catch(e) {}
+    
+    if (!lastClaimedDate) lastClaimedDate = "Unknown";
+    
+    let msg = `✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။\n\nLast Claimed - ${lastClaimedDate}`;
     return ctx.replyWithHTML(msg);
   }
+
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
