@@ -762,67 +762,111 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူရန် စစ်ဆေးနေပါတယ်...");
   
-  // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
-  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  // Hit various endpoints
+  const ts = Date.now();
+  const dbV1 = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  const dbV2 = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  const msV1 = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  const msV2 = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  let listV2  = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  let listV1  = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
   
-  let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-  if (!listRes || listRes.status !== 'success') {
-      listRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-  }
-  
-  if (listRes?._authFailed) {
+  if (listV1?._authFailed || dbV1?._authFailed) {
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
       return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   let claimId = null;
   let pointsToClaim: string | null = null;
+  let allItemsDebug = [];
   
-  if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
-    const isClaimedText = (lbl: string) => {
+  const isClaimedText = (lbl: string) => {
       if (!lbl) return false;
       const val = lbl.toLowerCase();
       return (val.includes('claim') && (val.includes('ed') || val.includes('ing') || val.includes('done') || val.includes('already'))) || val.includes('ပြီး');
-    };
+  };
 
-    let claimableItem = listRes.data.attribute.items.find((item: any) => 
-      (item.enable === 1 || item.enable === true) && 
-      (!item.label || !isClaimedText(item.label))
-    );
-    
-    // Fallback: strictly find active or available ones that are not claimed
-    if (!claimableItem) {
-        for (const item of listRes.data.attribute.items) {
-            if (!item.label) continue;
-            if ((item.status === 'ACTIVE' || item.status === 'AVAILABLE') && !isClaimedText(item.label)) {
-                claimableItem = item; 
-                break;
-            }
-        }
-    }
-    
-    if (claimableItem) {
-        claimId = claimableItem.id;
-        if (claimableItem.point) {
-            pointsToClaim = String(claimableItem.point);
-        } else if (claimableItem.label) {
-            const match = claimableItem.label.match(/(\d+)\s*points?/i);
-            if (match) {
-                pointsToClaim = match[1];
-            } else {
-                const numMatch = claimableItem.label.match(/\d+/);
-                if (numMatch) {
-                    pointsToClaim = numMatch[0];
-                }
-            }
-        }
-    }
+  // Collect items from all endpoints
+  let allItems: any[] = [];
+  const sources = [
+      { name: "dbV1", data: dbV1 }, { name: "dbV2", data: dbV2 },
+      { name: "msV1", data: msV1 }, { name: "msV2", data: msV2 },
+      { name: "listV1", data: listV1 }, { name: "listV2", data: listV2 }
+  ];
+  
+  for (const src of sources) {
+      if (src.data && src.data.status === 'success') {
+          const attr = src.data.attribute || {};
+          let items = attr.items || [];
+          if (!Array.isArray(items)) {
+              if (Array.isArray(attr.missionItems)) items = attr.missionItems;
+              else if (Array.isArray(attr.claimItems)) items = attr.claimItems;
+              else if (Array.isArray(attr.dailyItems)) items = attr.dailyItems;
+          }
+          if (Array.isArray(items) && items.length > 0) {
+              for (const it of items) {
+                  it._source = src.name;
+                  allItems.push(it);
+              }
+          }
+          // Some daily checkin might be a specific object in dashboard
+          if (attr.dailyCheckin) {
+              attr.dailyCheckin._source = src.name + "_dailyCheckin";
+              allItems.push(attr.dailyCheckin);
+          }
+      }
+  }
+  
+  for (const item of allItems) {
+      allItemsDebug.push(`- [${item._source}] ${item.title || item.name || 'Task'}: Pt ${item.point || '?'} (St: ${item.status || '-'}, Lbl: ${item.label || '-'}, En: ${item.enable || '-'})`);
+      
+      const titleStr = String(item.title || item.name || '').toLowerCase();
+      const stStr = String(item.status || '').toUpperCase();
+      
+      // Prioritize items that look like daily checking
+      if (titleStr.includes('daily') || titleStr.includes('check in') || titleStr.includes('checked in') || titleStr.includes('စစ်ဆေးရန်')) {
+           if (!isClaimedText(item.label) && stStr !== 'CLAIMED' && (item.enable === 1 || item.enable === true || stStr === 'AVAILABLE' || stStr === 'ACTIVE')) {
+               claimId = item.id || item.taskId || item.missionId;
+               pointsToClaim = String(item.point || item.points || '');
+               break;
+           }
+      }
+  }
+  
+  if (!claimId) {
+      for (const item of allItems) {
+          const stStr = String(item.status || '').toUpperCase();
+          const isAvail = (stStr === 'AVAILABLE' || stStr === 'ACTIVE' || stStr === 'READY' || item.enable === 1 || item.enable === true);
+          const isClaimed = isClaimedText(item.label) || stStr === 'CLAIMED';
+          
+          if (isAvail && !isClaimed) {
+              claimId = item.id || item.taskId || item.missionId;
+              pointsToClaim = String(item.point || item.points || '');
+              break;
+          }
+      }
+  }
+  
+  if (claimId && !pointsToClaim) {
+      const item = allItems.find((i: any) => i.id === claimId || i.taskId === claimId || i.missionId === claimId);
+      if (item && item.label) {
+          const match = item.label.match(/(\d+)\s*points?/i);
+          if (match) pointsToClaim = match[1];
+          else {
+              const numMatch = item.label.match(/\d+/);
+              if (numMatch) pointsToClaim = numMatch[0];
+          }
+      }
   }
   
   if (!claimId) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
+    let msg = "✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။\n\n(Api data update မဖြစ်သေးရင် ခဏနေမှ ထပ်စမ်းကြည့်ပါ)";
+    if (allItemsDebug.length > 0) {
+        // limit to last 20 items to avoid message too long
+        msg += `\n\n📌 <b>Current Tasks Status:</b>\n` + allItemsDebug.slice(0, 20).join('\n');
+    }
+    return ctx.replyWithHTML(msg);
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
