@@ -51,9 +51,13 @@ async function clearSession(tgUserId: number) {
 
 const COMMON_HEADERS = {
   "accept": "application/json, text/plain, */*",
-  "user-agent": "MyTM/4.13.0/Android/30",
-  "device-name": "Xiaomi 2201122C", "X-Client-Channel": "Android",
-  "x-server-select": "production"
+  "user-agent": "MyTM/4.16.0/Android/30",
+  "device-name": "Xiaomi 2201122C", 
+  "X-Client-Channel": "Android",
+  "x-server-select": "production",
+  "x-timezone": "Asia/Yangon",
+  "timezone": "Asia/Yangon",
+  "time-zone": "Asia/Yangon"
 };
 
 const botHttpsAgent = new https.Agent({
@@ -760,6 +764,7 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
   let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   if (!listRes || listRes.status !== 'success') {
@@ -781,11 +786,21 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
       return (val.includes('claim') && (val.includes('ed') || val.includes('ing') || val.includes('done') || val.includes('already'))) || val.includes('ပြီး');
     };
 
-    const claimableItem = listRes.data.attribute.items.find((item: any) => 
+    let claimableItem = listRes.data.attribute.items.find((item: any) => 
       (item.enable === 1 || item.enable === true) && 
-      item.label && 
-      !isClaimedText(item.label)
+      (!item.label || !isClaimedText(item.label))
     );
+    
+    // Fallback: strictly find active or available ones that are not claimed
+    if (!claimableItem) {
+        for (const item of listRes.data.attribute.items) {
+            if (!item.label) continue;
+            if ((item.status === 'ACTIVE' || item.status === 'AVAILABLE') && !isClaimedText(item.label)) {
+                claimableItem = item; 
+                break;
+            }
+        }
+    }
     
     if (claimableItem) {
         claimId = claimableItem.id;
