@@ -829,8 +829,12 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageText("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
 
-  const bodyObj = { id: claimId };
-  const claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  const bodyObj = { id: isNaN(Number(claimId)) ? claimId : Number(claimId) };
+  let claimRes = await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  
+  if (!claimRes || claimRes.status !== 'success') {
+      claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  }
   
   if (claimRes?._authFailed) {
       return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
