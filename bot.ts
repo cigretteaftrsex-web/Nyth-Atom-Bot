@@ -796,7 +796,7 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   for (const src of sources) {
       if (src.data && src.data.status === 'success') {
-          const attr = src.data.attribute || {};
+          const attr = src.data.data?.attribute || src.data.attribute || {};
           let items = attr.items || [];
           if (!Array.isArray(items)) {
               if (Array.isArray(attr.missionItems)) items = attr.missionItems;
@@ -818,9 +818,9 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   }
   
   for (const item of allItems) {
-      allItemsDebug.push(`- [${item._source}] ${item.title || item.name || 'Task'}: Pt ${item.point || '?'} (St: ${item.status || '-'}, Lbl: ${item.label || '-'}, En: ${item.enable || '-'})`);
+      allItemsDebug.push(`- [${item._source}] ${item.title || item.name || item.campaign_name || 'Task'}: Pt ${item.point || '?'} (St: ${item.status || '-'}, Lbl: ${item.label || '-'}, En: ${item.enable || '-'})`);
       
-      const titleStr = String(item.title || item.name || '').toLowerCase();
+      const titleStr = String(item.title || item.name || item.campaign_name || '').toLowerCase();
       const stStr = String(item.status || '').toUpperCase();
       
       // Prioritize items that look like daily checking
