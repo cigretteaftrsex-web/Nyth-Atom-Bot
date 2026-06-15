@@ -79,6 +79,9 @@ async function atomApiPost(endpoint: string, data: any, headers: any = {}, retri
         validateStatus: () => true,
         timeout: 10000
       });
+      if (res.data && typeof res.data === 'object') {
+        res.data.httpStatusCode = res.status;
+      }
       return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
@@ -103,6 +106,9 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
         validateStatus: () => true,
         timeout: 10000
       });
+      if (res.data && typeof res.data === 'object') {
+        res.data.httpStatusCode = res.status;
+      }
       return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
@@ -117,13 +123,16 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
+  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
   const str = JSON.stringify(res).toLowerCase();
   return str.includes('unauthenticated') || 
          str.includes('unauthorized') || 
          str.includes('token expired') || 
          str.includes('invalid token') ||
-         str.includes('9001');
+         str.includes('9001') ||
+         str.includes('token is invalid') ||
+         str.includes('signature verification failed');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -133,11 +142,36 @@ async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
       `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=-1&v=4.16.0`
     ];
     
+    const uId = sess.userId ? sess.userId.toString().trim() : "";
+    
     for (const url of endpoints) {
-        let res = await atomApiPost(url, { refresh_token: sess.refreshToken }, {}, 1);
+        // Try with refresh_token key
+        const body1 = { refresh_token: sess.refreshToken };
+        const rawBody1 = JSON.stringify(body1);
+        const checksum1 = generateChecksumNode(uId, rawBody1);
+        const headers1 = {
+           "Checksum": checksum1,
+           "X-Atom-Signature": checksum1,
+           "X-Signature": checksum1,
+           "Authorization": `Bearer ${sess.token}`
+        };
+        
+        let res = await atomApiPost(url, body1, headers1, 1);
+        
+        // Try with refreshToken key if body1 failed
         if (!res || res.status !== 'success') {
-           res = await atomApiPost(url, { refreshToken: sess.refreshToken }, {}, 1);
+           const body2 = { refreshToken: sess.refreshToken };
+           const rawBody2 = JSON.stringify(body2);
+           const checksum2 = generateChecksumNode(uId, rawBody2);
+           const headers2 = {
+              "Checksum": checksum2,
+              "X-Atom-Signature": checksum2,
+              "X-Signature": checksum2,
+              "Authorization": `Bearer ${sess.token}`
+           };
+           res = await atomApiPost(url, body2, headers2, 1);
         }
+        
         if (res && res.status === 'success' && res.data?.attribute) {
             const payload = res.data.attribute;
             const newSess = {
@@ -166,11 +200,14 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
        headers["Authorization"] = `Bearer ${newSess.token}`;
        res = await atomApiGet(endpoint, headers);
      } else {
-       if (!res) res = {};
-       res._authFailed = true;
+       if (res && typeof res === 'object') {
+         res._authFailed = true;
+       } else {
+         res = { _authFailed: true };
+       }
      }
   }
-  return res || { _authFailed: true };
+  return res;
 }
 
 async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, customHeaders: any = {}) {
@@ -200,11 +237,14 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        headers["X-Signature"] = newChecksum;
        res = await atomApiPost(endpoint, bodyObj, headers);
      } else {
-       if (!res) res = {};
-       res._authFailed = true;
+       if (res && typeof res === 'object') {
+         res._authFailed = true;
+       } else {
+         res = { _authFailed: true };
+       }
      }
   }
-  return res || { _authFailed: true };
+  return res;
 }
 
 const authWizard = new Scenes.WizardScene<any>(
@@ -557,13 +597,29 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
   }
 
   if (buyRes && buyRes.status === 'success') {
-     // Fetch the updated balance to show
-     const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-     let remain = '-';
-     if (getPackRes && getPackRes.status === 'success') {
-        remain = getPackRes.data?.attribute?.couponBalance?.totalCoupon ?? getPackRes.data?.attribute?.couponBalance ?? getPackRes.data?.attribute?.toTohBalance?.totalCoupon ?? '-';
+     // Let's search inside buyRes first
+     const buyAttr = buyRes.data?.attribute;
+     let remain = buyAttr?.couponBalance?.totalCoupon ?? 
+                  buyAttr?.toTohBalance?.totalCoupon ?? 
+                  buyAttr?.couponBalance ?? 
+                  buyAttr?.totalCoupon ?? 
+                  buyAttr?.preCouponBalance?.totalCoupon;
+                  
+     if (remain === undefined || remain === null) {
+         // Fetch the updated balance to show
+         const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+         if (getPackRes && getPackRes.status === 'success') {
+            const getAttr = getPackRes.data?.attribute;
+            remain = getAttr?.couponBalance?.totalCoupon ?? 
+                     getAttr?.couponBalance ?? 
+                     getAttr?.toTohBalance?.totalCoupon ?? 
+                     getAttr?.totalCoupon ?? 
+                     getAttr?.preCouponBalance?.totalCoupon;
+         }
      }
-     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
+     
+     const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
+     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
      let errMsg = buyRes?.errors?.message?.message || buyRes?.message || buyRes?.errors?.title;
      
@@ -646,12 +702,22 @@ bot.action('buy_goldenfarm', async (ctx) => {
 
   if (res && res.status === 'success') {
     // Fetch updated balance
-    const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-    let remain = '-';
-    if (getPackRes && getPackRes.status === 'success') {
-       remain = getPackRes.data?.attribute?.couponBalance ?? '-';
+    const buyAttr = res.data?.attribute;
+    let remain = buyAttr?.couponBalance ?? 
+                 buyAttr?.totalCoupon ?? 
+                 buyAttr?.couponBalance?.totalCoupon;
+    
+    if (remain === undefined || remain === null) {
+        const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+        if (getPackRes && getPackRes.status === 'success') {
+           const getAttr = getPackRes.data?.attribute;
+           remain = getAttr?.couponBalance ?? 
+                    getAttr?.couponBalance?.totalCoupon ?? 
+                    getAttr?.totalCoupon;
+        }
     }
-    await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
+    const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
+    await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
     let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title;
     
@@ -690,12 +756,15 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
+  const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူရန် စစ်ဆေးနေပါတယ်...");
   
   // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
-  const listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  if (!listRes || listRes.status !== 'success') {
+      listRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  }
   
   if (listRes?._authFailed) {
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
@@ -744,7 +813,7 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   const pointText = pointsToClaim ? String(pointsToClaim) : "Daily Point";
-  await ctx.reply(`ရယူနိုင်သော Daily Point - ${pointText}`, Markup.inlineKeyboard([
+  await ctx.reply(`🎁 ရယူနိုင်သော Daily Point - ${pointText} Pts`, Markup.inlineKeyboard([
       [Markup.button.callback('ရယူမည်', `claim_point_${claimId}`)]
   ]));
 });
