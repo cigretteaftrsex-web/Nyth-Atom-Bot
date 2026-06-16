@@ -139,8 +139,7 @@ function isTokenExpired(res: any): boolean {
          str.includes('"message":"unauthorized"') || 
          str.includes('token expired') || 
          str.includes('invalid token') ||
-         str.includes('token is invalid') ||
-         str.includes('signature verification failed');
+         str.includes('token is invalid');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -210,8 +209,9 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
+         res._errReason = JSON.stringify(res).substring(0, 100);
        } else {
-         res = { _authFailed: true };
+         res = { _authFailed: true, _errReason: String(res) };
        }
      }
   }
@@ -247,8 +247,9 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
+         res._errReason = JSON.stringify(res).substring(0, 100);
        } else {
-         res = { _authFailed: true };
+         res = { _authFailed: true, _errReason: String(res) };
        }
      }
   }
@@ -441,7 +442,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${dashRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
@@ -468,7 +469,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${res._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -500,7 +501,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${dashRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
@@ -530,7 +531,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${res._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -928,7 +929,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
   
   if (claimRes?._authFailed) {
-      return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
+      return ctx.editMessageText(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${claimRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`).catch(() => {});
   }
 
   if (claimRes && claimRes.status === 'success') {
