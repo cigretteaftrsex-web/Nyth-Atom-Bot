@@ -127,14 +127,18 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
-  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
+  if (res.httpStatusCode === 401) return true;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
+  
+  if (res.error && res.error.code === 401) return true;
+  if (res.errorCode === "401") return true;
+
   const str = JSON.stringify(res).toLowerCase();
-  return str.includes('unauthenticated') || 
-         str.includes('unauthorized') || 
+  // Be specific so we don't catch game error codes incorrectly
+  return str.includes('"message":"unauthenticated"') || 
+         str.includes('"message":"unauthorized"') || 
          str.includes('token expired') || 
          str.includes('invalid token') ||
-         str.includes('9001') ||
          str.includes('token is invalid') ||
          str.includes('signature verification failed');
 }
