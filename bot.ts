@@ -127,24 +127,16 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
-  
-  const str = JSON.stringify(res).toLowerCase();
-  
-  // If it's an invalid signature, the token isn't the problem, the body checksum is.
-  if (str.includes('invalid signature')) return false;
-
-  if (res.httpStatusCode === 401) return true;
+  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
-  
-  if (res.error && res.error.code === 401) return true;
-  if (res.errorCode === "401") return true;
-
-  // Be specific so we don't catch game error codes incorrectly
-  return str.includes('"message":"unauthenticated"') || 
-         str.includes('"message":"unauthorized"') || 
+  const str = JSON.stringify(res).toLowerCase();
+  return str.includes('unauthenticated') || 
+         str.includes('unauthorized') || 
          str.includes('token expired') || 
          str.includes('invalid token') ||
-         str.includes('token is invalid');
+         str.includes('9001') ||
+         str.includes('token is invalid') ||
+         str.includes('signature verification failed');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -186,23 +178,11 @@ async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
         
         if (res && res.status === 'success' && res.data?.attribute) {
             const payload = res.data.attribute;
-            
-            let extractedUserId = payload.user_id || payload.userId || payload.id || null;
-            if (!extractedUserId && payload.token) {
-               try {
-                  const jwtParts = String(payload.token).split('.');
-                  if (jwtParts.length >= 2) {
-                     const jwtPayload = JSON.parse(Buffer.from(jwtParts[1], 'base64').toString('utf-8'));
-                     extractedUserId = jwtPayload.user_id || jwtPayload.userId || jwtPayload.sub || jwtPayload.id || null;
-                  }
-               } catch (e) {}
-            }
-
             const newSess = {
               token: payload.token || sess.token,
               msisdn: payload.msisdn || sess.msisdn,
-              userId: extractedUserId || sess.userId,
-              refreshToken: payload.refresh_token || payload.refreshToken || sess.refreshToken
+              userId: payload.user_id || sess.userId,
+              refreshToken: payload.refresh_token || sess.refreshToken
             };
             await saveSession(tgUserId, newSess);
             return newSess;
@@ -226,9 +206,8 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
-         res._errReason = JSON.stringify(res).substring(0, 100);
        } else {
-         res = { _authFailed: true, _errReason: String(res) };
+         res = { _authFailed: true };
        }
      }
   }
@@ -264,9 +243,8 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
-         res._errReason = JSON.stringify(res).substring(0, 100);
        } else {
-         res = { _authFailed: true, _errReason: String(res) };
+         res = { _authFailed: true };
        }
      }
   }
@@ -326,23 +304,11 @@ const authWizard = new Scenes.WizardScene<any>(
       
       if (res && res.status === 'success' && res.data?.attribute) {
         const payload = res.data.attribute;
-        
-        let extractedUserId = payload.user_id || payload.userId || payload.id || null;
-        if (!extractedUserId && payload.token) {
-           try {
-              const jwtParts = String(payload.token).split('.');
-              if (jwtParts.length >= 2) {
-                 const jwtPayload = JSON.parse(Buffer.from(jwtParts[1], 'base64').toString('utf-8'));
-                 extractedUserId = jwtPayload.user_id || jwtPayload.userId || jwtPayload.sub || jwtPayload.id || null;
-              }
-           } catch (e) {}
-        }
-        
         await saveSession(ctx.from.id, {
           token: payload.token,
           msisdn: payload.msisdn,
-          userId: extractedUserId,
-          refreshToken: payload.refresh_token || payload.refreshToken
+          userId: payload.user_id,
+          refreshToken: payload.refresh_token
         });
         
         await ctx.reply("✅ အကောင့်ဝင်တာ အောင်မြင်သွားပါပြီ 🎉", getMainKeyboard(true));
@@ -471,7 +437,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${dashRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
+    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
@@ -498,7 +464,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${res._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
+    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -530,7 +496,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${dashRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
+    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
@@ -560,7 +526,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${res._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`, getMainKeyboard(false));
+    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -958,7 +924,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
   
   if (claimRes?._authFailed) {
-      return ctx.editMessageText(`❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ [${claimRes._errReason}] ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။`).catch(() => {});
+      return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
   }
 
   if (claimRes && claimRes.status === 'success') {
