@@ -129,18 +129,17 @@ function isTokenExpired(res: any): boolean {
   if (!res) return false;
   if (res.status === 'success') return false;
   
-  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
+  if (res.httpStatusCode === 401) return true;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
   
   const str = JSON.stringify(res).toLowerCase();
   if (str.includes('maintenance') || str.includes('server error') || str.includes('timeout')) return false;
 
+  // Note: '9001' often means 'signature invalid', not token expired. 403 can be WAF.
+  // We only trigger refresh for actual token-related errors to avoid false auth failures.
   return str.includes('unauthenticated') || 
-         str.includes('unauthorized') || 
          str.includes('token expired') || 
-         str.includes('invalid token') ||
-         str.includes('9001') ||
-         str.includes('token is invalid');
+         str.includes('jwt expired');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -200,7 +199,6 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
        headers["Authorization"] = `Bearer ${newSess.token}`;
        res = await atomApiGet(endpoint, headers);
      } else {
-       await clearSession(tgUserId);
        if (res && typeof res === 'object') {
          res._authFailed = true;
        } else {
@@ -238,7 +236,6 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        headers["X-Signature"] = newChecksum;
        res = await atomApiPost(endpoint, bodyObj, headers);
      } else {
-       await clearSession(tgUserId);
        if (res && typeof res === 'object') {
          res._authFailed = true;
        } else {
@@ -693,7 +690,7 @@ bot.action('buy_goldenfarm', async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
 
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+  const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {});
 
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
