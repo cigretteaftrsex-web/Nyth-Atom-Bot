@@ -127,65 +127,61 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
+  if (res.status === 'success') return false;
+  
   if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
+  
   const str = JSON.stringify(res).toLowerCase();
+  if (str.includes('maintenance') || str.includes('server error') || str.includes('timeout')) return false;
+
   return str.includes('unauthenticated') || 
          str.includes('unauthorized') || 
          str.includes('token expired') || 
          str.includes('invalid token') ||
          str.includes('9001') ||
-         str.includes('token is invalid') ||
-         str.includes('signature verification failed');
+         str.includes('token is invalid');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
     const endpoints = [
-      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
+      `/mytmapi/v2/my/auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
       `/mytmapi/v1/my/auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
-      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=-1&v=4.16.0`
+      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`
     ];
     
     const uId = sess.userId ? sess.userId.toString().trim() : "";
     
     for (const url of endpoints) {
-        // Try with refresh_token key
-        const body1 = { refresh_token: sess.refreshToken };
-        const rawBody1 = JSON.stringify(body1);
-        const checksum1 = generateChecksumNode(uId, rawBody1);
-        const headers1 = {
-           "Checksum": checksum1,
-           "X-Atom-Signature": checksum1,
-           "X-Signature": checksum1,
-           "Authorization": `Bearer ${sess.token}`
-        };
-        
-        let res = await atomApiPost(url, body1, headers1, 1);
-        
-        // Try with refreshToken key if body1 failed
-        if (!res || res.status !== 'success') {
-           const body2 = { refreshToken: sess.refreshToken };
-           const rawBody2 = JSON.stringify(body2);
-           const checksum2 = generateChecksumNode(uId, rawBody2);
-           const headers2 = {
-              "Checksum": checksum2,
-              "X-Atom-Signature": checksum2,
-              "X-Signature": checksum2,
-              "Authorization": `Bearer ${sess.token}`
-           };
-           res = await atomApiPost(url, body2, headers2, 1);
-        }
-        
-        if (res && res.status === 'success' && res.data?.attribute) {
-            const payload = res.data.attribute;
-            const newSess = {
-              token: payload.token || sess.token,
-              msisdn: payload.msisdn || sess.msisdn,
-              userId: payload.user_id || sess.userId,
-              refreshToken: payload.refresh_token || sess.refreshToken
+        const payloadsToTry = [
+            { refresh_token: sess.refreshToken },
+            { refreshToken: sess.refreshToken },
+            { refresh_token: sess.refreshToken, msisdn: sess.msisdn },
+            { refreshToken: sess.refreshToken, msisdn: sess.msisdn }
+        ];
+
+        for (const bodyObj of payloadsToTry) {
+            const rawBody = JSON.stringify(bodyObj);
+            const checksum = generateChecksumNode(uId, rawBody);
+            const headers = {
+               "Checksum": checksum,
+               "X-Atom-Signature": checksum,
+               "X-Signature": checksum,
+               "Authorization": `Bearer ${sess.token}`
             };
-            await saveSession(tgUserId, newSess);
-            return newSess;
+            
+            const res = await atomApiPost(url, bodyObj, headers, 1);
+            if (res && res.status === 'success' && res.data?.attribute) {
+                const payload = res.data.attribute;
+                const newSess = {
+                  token: payload.token || sess.token,
+                  msisdn: payload.msisdn || sess.msisdn,
+                  userId: payload.user_id || sess.userId,
+                  refreshToken: payload.refresh_token || sess.refreshToken
+                };
+                await saveSession(tgUserId, newSess);
+                return newSess;
+            }
         }
     }
     return null;
@@ -204,6 +200,7 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
        headers["Authorization"] = `Bearer ${newSess.token}`;
        res = await atomApiGet(endpoint, headers);
      } else {
+       await clearSession(tgUserId);
        if (res && typeof res === 'object') {
          res._authFailed = true;
        } else {
@@ -241,6 +238,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        headers["X-Signature"] = newChecksum;
        res = await atomApiPost(endpoint, bodyObj, headers);
      } else {
+       await clearSession(tgUserId);
        if (res && typeof res === 'object') {
          res._authFailed = true;
        } else {
