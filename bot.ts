@@ -129,17 +129,25 @@ function isTokenExpired(res: any): boolean {
   if (!res) return false;
   if (res.status === 'success') return false;
   
-  if (res.httpStatusCode === 401) return true;
-  if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
-  
   const str = JSON.stringify(res).toLowerCase();
   if (str.includes('maintenance') || str.includes('server error') || str.includes('timeout')) return false;
 
-  // Note: '9001' often means 'signature invalid', not token expired. 403 can be WAF.
   // We only trigger refresh for actual token-related errors to avoid false auth failures.
-  return str.includes('unauthenticated') || 
-         str.includes('token expired') || 
-         str.includes('jwt expired');
+  if (str.includes('unauthenticated') || 
+      str.includes('token expired') || 
+      str.includes('jwt expired')) {
+      return true;
+  }
+  
+  // If the API returns 401 but no specific unauthenticated message, it might be a signature issue.
+  // We should NOT treat it as token expiration unless we are sure.
+  if (res.httpStatusCode === 401 && (str.includes('invalid') || str.includes('signature'))) {
+      return false; // Not a token expiration, probably signature failure
+  }
+  
+  // As a fallback, if it's 401 and doesn't match above, we can assume it might be expired, but 
+  // actually let's only return true if it explicitly says unauthenticated to prevent false logouts.
+  return false;
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -575,7 +583,8 @@ bot.hears('🎟️ TohToh Live ဝယ်ယူရန်', async (ctx) => {
 });
 
 bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
-  const offerId = ctx.match[1];
+  const offerIdStr = ctx.match[1];
+  const offerId = isNaN(Number(offerIdStr)) ? offerIdStr : Number(offerIdStr);
   const sess = await getSession(ctx.from?.id);
   if (!sess) {
     await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
@@ -690,7 +699,7 @@ bot.action('buy_goldenfarm', async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
 
-  const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {});
+  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
 
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
