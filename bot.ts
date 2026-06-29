@@ -187,7 +187,7 @@ async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
                "Authorization": `Bearer ${sess.token}`
             };
             
-            const res = await atomApiPost(url, bodyObj, headers, 1);
+            const res = await atomApiPost(url, rawBody, headers, 1);
             if (res && res.status === 'success' && res.data?.attribute) {
                 const payload = res.data.attribute;
                 const newSess = {
@@ -242,7 +242,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
     ...customHeaders
   };
   
-  let res = await atomApiPost(endpoint, bodyObj, headers);
+  let res = await atomApiPost(endpoint, rawBody, headers);
   
   if (res && res.status !== 'success' && isTokenExpired(res)) {
      const newSess = await performTokenRefresh(tgUserId, sess);
@@ -252,7 +252,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        headers["Checksum"] = newChecksum;
        headers["X-Atom-Signature"] = newChecksum;
        headers["X-Signature"] = newChecksum;
-       res = await atomApiPost(endpoint, bodyObj, headers);
+       res = await atomApiPost(endpoint, rawBody, headers);
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
@@ -442,11 +442,11 @@ bot.hears('🌾 ရွှေလယ်တော ကူပွန်', async (ctx) 
 
 function extractErrorMsg(res: any, defaultMsg: string): string {
     if (!res) return defaultMsg;
-    if (typeof res === 'string') return res.substring(0, 100);
-    if (res._rawString) return (typeof res._rawString === 'string' ? res._rawString.substring(0, 100) : defaultMsg);
+    if (typeof res === 'string') return res.substring(0, 150);
+    if (res._rawString) return (typeof res._rawString === 'string' ? res._rawString.substring(0, 150) : defaultMsg);
     
     let errMsg = defaultMsg;
-    if (typeof res.message === 'string') errMsg = res.message;
+    if (typeof res.message === 'string' && res.message.trim() !== '') errMsg = res.message;
     else if (res.errors) {
         if (typeof res.errors.message === 'string') errMsg = res.errors.message;
         else if (typeof res.errors.message?.message === 'string') errMsg = res.errors.message.message;
@@ -461,7 +461,7 @@ function extractErrorMsg(res: any, defaultMsg: string): string {
     if (errMsg === defaultMsg && typeof res === 'object') {
         const str = JSON.stringify(res);
         if (str.length > 5 && str !== '{}') {
-             errMsg = defaultMsg + ` (Raw: ${str.substring(0, 100)})`;
+             errMsg = defaultMsg + `\n(Debug: ${str.substring(0, 200)})`;
         }
     }
     return errMsg;
