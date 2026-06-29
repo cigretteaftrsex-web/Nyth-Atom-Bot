@@ -51,13 +51,9 @@ async function clearSession(tgUserId: number) {
 
 const COMMON_HEADERS = {
   "accept": "application/json, text/plain, */*",
-  "user-agent": "MyTM/4.16.0/Android/30",
-  "device-name": "Xiaomi 2201122C", 
-  "X-Client-Channel": "Android",
-  "x-server-select": "production",
-  "x-timezone": "Asia/Yangon",
-  "timezone": "Asia/Yangon",
-  "time-zone": "Asia/Yangon"
+  "user-agent": "MyTM/4.13.0/Android/30",
+  "device-name": "Xiaomi 2201122C", "X-Client-Channel": "Android",
+  "x-server-select": "production"
 };
 
 const botHttpsAgent = new https.Agent({
@@ -83,9 +79,6 @@ async function atomApiPost(endpoint: string, data: any, headers: any = {}, retri
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data && typeof res.data === 'object') {
-        res.data.httpStatusCode = res.status;
-      }
       return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
@@ -110,9 +103,6 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data && typeof res.data === 'object') {
-        res.data.httpStatusCode = res.status;
-      }
       return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
@@ -123,132 +113,6 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
     }
   }
   return null;
-}
-
-function isTokenExpired(res: any): boolean {
-  if (!res) return false;
-  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
-  if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
-  const str = JSON.stringify(res).toLowerCase();
-  return str.includes('unauthenticated') || 
-         str.includes('unauthorized') || 
-         str.includes('token expired') || 
-         str.includes('invalid token') ||
-         str.includes('9001') ||
-         str.includes('token is invalid') ||
-         str.includes('signature verification failed');
-}
-
-async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
-    const endpoints = [
-      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
-      `/mytmapi/v1/my/auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
-      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=-1&v=4.16.0`
-    ];
-    
-    const uId = sess.userId ? sess.userId.toString().trim() : "";
-    
-    for (const url of endpoints) {
-        // Try with refresh_token key
-        const body1 = { refresh_token: sess.refreshToken };
-        const rawBody1 = JSON.stringify(body1);
-        const checksum1 = generateChecksumNode(uId, rawBody1);
-        const headers1 = {
-           "Checksum": checksum1,
-           "X-Atom-Signature": checksum1,
-           "X-Signature": checksum1,
-           "Authorization": `Bearer ${sess.token}`
-        };
-        
-        let res = await atomApiPost(url, body1, headers1, 1);
-        
-        // Try with refreshToken key if body1 failed
-        if (!res || res.status !== 'success') {
-           const body2 = { refreshToken: sess.refreshToken };
-           const rawBody2 = JSON.stringify(body2);
-           const checksum2 = generateChecksumNode(uId, rawBody2);
-           const headers2 = {
-              "Checksum": checksum2,
-              "X-Atom-Signature": checksum2,
-              "X-Signature": checksum2,
-              "Authorization": `Bearer ${sess.token}`
-           };
-           res = await atomApiPost(url, body2, headers2, 1);
-        }
-        
-        if (res && res.status === 'success' && res.data?.attribute) {
-            const payload = res.data.attribute;
-            const newSess = {
-              token: payload.token || sess.token,
-              msisdn: payload.msisdn || sess.msisdn,
-              userId: payload.user_id || sess.userId,
-              refreshToken: payload.refresh_token || sess.refreshToken
-            };
-            await saveSession(tgUserId, newSess);
-            return newSess;
-        }
-    }
-    return null;
-}
-
-async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any = {}) {
-  let sess = await getSession(tgUserId);
-  if (!sess) return null;
-  
-  let headers = { "Authorization": `Bearer ${sess.token}`, ...customHeaders };
-  let res = await atomApiGet(endpoint, headers);
-  
-  if (res && res.status !== 'success' && isTokenExpired(res)) {
-     const newSess = await performTokenRefresh(tgUserId, sess);
-     if (newSess) {
-       headers["Authorization"] = `Bearer ${newSess.token}`;
-       res = await atomApiGet(endpoint, headers);
-     } else {
-       if (res && typeof res === 'object') {
-         res._authFailed = true;
-       } else {
-         res = { _authFailed: true };
-       }
-     }
-  }
-  return res;
-}
-
-async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, customHeaders: any = {}) {
-  let sess = await getSession(tgUserId);
-  if (!sess) return null;
-  
-  const rawBody = typeof bodyObj === 'string' ? bodyObj : JSON.stringify(bodyObj);
-  let checksum = generateChecksumNode(sess.userId.toString().trim(), rawBody);
-  
-  let headers = {
-    "Authorization": `Bearer ${sess.token}`,
-    "Checksum": checksum,
-    "X-Atom-Signature": checksum,
-    "X-Signature": checksum,
-    ...customHeaders
-  };
-  
-  let res = await atomApiPost(endpoint, bodyObj, headers);
-  
-  if (res && res.status !== 'success' && isTokenExpired(res)) {
-     const newSess = await performTokenRefresh(tgUserId, sess);
-     if (newSess) {
-       let newChecksum = generateChecksumNode(newSess.userId.toString().trim(), rawBody);
-       headers["Authorization"] = `Bearer ${newSess.token}`;
-       headers["Checksum"] = newChecksum;
-       headers["X-Atom-Signature"] = newChecksum;
-       headers["X-Signature"] = newChecksum;
-       res = await atomApiPost(endpoint, bodyObj, headers);
-     } else {
-       if (res && typeof res === 'object') {
-         res._authFailed = true;
-       } else {
-         res = { _authFailed: true };
-       }
-     }
-  }
-  return res;
 }
 
 const authWizard = new Scenes.WizardScene<any>(
@@ -272,7 +136,7 @@ const authWizard = new Scenes.WizardScene<any>(
       const msg = await ctx.reply("⏳ OTP ပို့နေပါပြီဗျ...");
       
       const res = await atomApiPost('/mytmapi/v1/my/local-auth/send-otp?msisdn=&userid=-1&v=4.16.0', { msisdn: phone });
-      await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id);
       
       if (res && res.status === 'success' && res.data?.attribute?.code) {
         ctx.wizard.state.otpCode = res.data.attribute.code;
@@ -300,7 +164,7 @@ const authWizard = new Scenes.WizardScene<any>(
         otp: otp
       });
       
-      await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id);
       
       if (res && res.status === 'success' && res.data?.attribute) {
         const payload = res.data.attribute;
@@ -359,13 +223,13 @@ bot.hears('💰 လက်ကျန်ငွေစစ်ရန်', async (ctx) =
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
   const waitMsg = await ctx.reply("⏳ လက်ကျန်ငွေ စစ်ဆေးနေပါတယ်...");
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/lightweight-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  const res = await atomApiGet(`/mytmapi/v1/my/lightweight-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-
   if (res && res.status === 'success') {
-    const attr = res.data?.attribute || {};
+    const attr = res.data.attribute;
     const mb = attr.mainBalance?.value ?? 0;
     const dataPack = attr.packsPieData?.data?.remaining ?? 0;
     const voicePack = attr.packsPieData?.voice?.remaining ?? 0;
@@ -382,13 +246,13 @@ bot.hears('📊 ပွိုင့်စစ်ရန်', async (ctx) => {
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
   const waitMsg = await ctx.reply("⏳ ပွိုင့်များကို စစ်ဆေးနေပါတယ်...");
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  const res = await atomApiGet(`/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-
   if (res && res.status === 'success') {
-    const attr = res.data?.attribute || {};
+    const attr = res.data.attribute;
     await ctx.reply(`⭐ ပွိုင့်အမှတ်: ${attr.totalPoint?.toLocaleString()} Pts\n🏅 အဆင့်: ${attr.starStatusLabel}\n📅 Point သက်တမ်း: ${attr.validityEndDateText}`);
   } else {
     await ctx.reply("❌ အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
@@ -399,10 +263,10 @@ bot.hears('🎟️ TohToh ကူပွန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
   
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+  const res = await atomApiGet(`/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-
   if (res && res.status === 'success') {
     const count = res.data?.attribute?.couponBalance?.totalCoupon ?? 0;
     await ctx.reply(`🎟️ TohToh ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
@@ -415,10 +279,10 @@ bot.hears('🌾 ရွှေလယ်တော ကူပွန်', async (ctx) 
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+  const res = await atomApiGet(`/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-
   if (res && res.status === 'success') {
     const count = res.data?.attribute?.couponBalance ?? 0;
     await ctx.reply(`🌾 ရွှေလယ်တော ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
@@ -433,48 +297,44 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ Toh Toh ဂိမ်း ဆော့နေပါတယ်...");
 
-  const dashRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-
-  if (dashRes?._authFailed) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-  }
+  const dashRes = await atomApiGet(`/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
 
   if (!dashRes || dashRes.status !== 'success') {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
     return ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 
   const count = dashRes.data?.attribute?.couponBalance?.totalCoupon ?? 0;
   if (count <= 0) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
     return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
   let maxLevel = 3;
   if (dashRes.data?.attribute?.levelData) {
-    const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter((n: any) => !isNaN(n));
+    const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter(n => !isNaN(n));
     if (levels.length > 0) maxLevel = Math.max(...levels);
   }
 
   const bodyObj = { isCompleted: 1, currentPlayLevel: maxLevel, chosenPrize: "Instant" };
   
-  const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/tohtohunited/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-  }
+  const rawBody = JSON.stringify(bodyObj);
+  const checksum = generateChecksumNode(sess.userId.toString().trim(), rawBody);
 
+  const res = await atomApiPost(`/mytmapi/v1/my/tohtohunited/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj, {
+    "Authorization": `Bearer ${sess.token}`,
+    "Checksum": checksum,
+    "X-Atom-Signature": checksum,
+    "X-Signature": checksum
+  });
+  
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
+  
   if (res && res.status === 'success' && res.data?.attribute) {
     const attr = res.data.attribute;
-    let remaining = count - 1;
-    if (attr.toTohBalance?.totalCoupon !== undefined) remaining = attr.toTohBalance.totalCoupon;
-    else if (attr.couponBalance?.totalCoupon !== undefined) remaining = attr.couponBalance.totalCoupon;
-    else if (attr.preCouponBalance?.totalCoupon !== undefined && attr.preCouponBalance?.totalCoupon < count) remaining = attr.preCouponBalance.totalCoupon;
-    if (remaining < 0) remaining = 0;
-
+    const remaining = attr.preCouponBalance?.totalCoupon ?? 0;
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
@@ -492,21 +352,18 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   
   const waitMsg = await ctx.reply("⏳ ရွှေလယ်တော ဂိမ်း ဆော့နေပါတယ်...");
 
-  const dashRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-
-  if (dashRes?._authFailed) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-  }
+  const dashRes = await atomApiGet(`/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
 
   if (!dashRes || dashRes.status !== 'success') {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
     return ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 
   const count = dashRes.data?.attribute?.couponBalance ?? 0;
   if (count <= 0) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
     return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
@@ -521,14 +378,19 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   }
 
   const bodyObj = { score: maxScore };
-  const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/goldenfarm/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
   
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-  }
+  const rawBody = JSON.stringify(bodyObj);
+  const checksum = generateChecksumNode(sess.userId.toString().trim(), rawBody);
 
+  const res = await atomApiPost(`/mytmapi/v1/my/goldenfarm/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj, {
+    "Authorization": `Bearer ${sess.token}`,
+    "Checksum": checksum,
+    "X-Atom-Signature": checksum,
+    "X-Signature": checksum
+  });
+  
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
+  
   if (res && res.status === 'success' && res.data?.attribute) {
     const attr = res.data.attribute;
     let prize = attr.prizeName;
@@ -538,13 +400,11 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     }
     if (!prize) prize = attr.prizeAmountText || "ဆုလက်ဆောင်";
     
-    let remaining = count - 1;
-    if (typeof attr.couponBalance === 'number' && attr.couponBalance < count) remaining = attr.couponBalance;
-    if (remaining < 0) remaining = 0;
-
+    const remaining = attr.couponBalance ?? 0;
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
+    // try to check res
     const errorMsg = res?.message || res?.originalResponse?.message || "ကစားခွင့် မကျန်တော့ပါ။";
     await ctx.reply(`❌ ${errorMsg}`);
   }
@@ -556,11 +416,11 @@ bot.hears('🎟️ TohToh Live ဝယ်ယူရန်', async (ctx) => {
 
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
 
-  const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+  const getPackRes = await atomApiGet(`/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
 
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-
-  if (getPackRes?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
 
   const packs = getPackRes?.data?.attribute?.luckyChanceItems?.packPurchase?.filter((p: any) => p.type === 'toh_toh_united_pack');
 
@@ -591,39 +451,20 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
 
   const bodyObj = { offerId };
-  const buyRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/tohtohunited/purchase-game-pack-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  const rawBody = JSON.stringify(bodyObj);
+  const checksum = generateChecksumNode(sess.userId.toString().trim(), rawBody);
 
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  const buyRes = await atomApiPost(`/mytmapi/v1/my/tohtohunited/purchase-game-pack-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj, { 
+    "Authorization": `Bearer ${sess.token}`,
+    "Checksum": checksum,
+    "X-Atom-Signature": checksum,
+    "X-Signature": checksum
+  });
 
-  if (buyRes?._authFailed) {
-      await ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-      return;
-  }
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
 
   if (buyRes && buyRes.status === 'success') {
-     // Let's search inside buyRes first
-     const buyAttr = buyRes.data?.attribute;
-     let remain = buyAttr?.couponBalance?.totalCoupon ?? 
-                  buyAttr?.toTohBalance?.totalCoupon ?? 
-                  buyAttr?.couponBalance ?? 
-                  buyAttr?.totalCoupon ?? 
-                  buyAttr?.preCouponBalance?.totalCoupon;
-                  
-     if (remain === undefined || remain === null) {
-         // Fetch the updated balance to show
-         const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-         if (getPackRes && getPackRes.status === 'success') {
-            const getAttr = getPackRes.data?.attribute;
-            remain = getAttr?.couponBalance?.totalCoupon ?? 
-                     getAttr?.couponBalance ?? 
-                     getAttr?.toTohBalance?.totalCoupon ?? 
-                     getAttr?.totalCoupon ?? 
-                     getAttr?.preCouponBalance?.totalCoupon;
-         }
-     }
-     
-     const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
-     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
+     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${buyRes.data?.attribute?.toTohBalance?.totalCoupon ?? buyRes.data?.attribute?.couponBalance?.totalCoupon ?? buyRes.data?.attribute?.couponBalance ?? '-'}`);
   } else {
      let errMsg = buyRes?.errors?.message?.message || buyRes?.message || buyRes?.errors?.title;
      
@@ -651,6 +492,7 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
          errMsg = buyRes.errors.message.title + " - " + errMsg;
      }
 
+     const debugStr = buyRes ? JSON.stringify(buyRes).substring(0, 200) : "empty";
      await ctx.editMessageText(`❌ ${errMsg}`);
   }
 });
@@ -661,11 +503,11 @@ bot.hears('🌾 ရွှေလယ်တော Live ဝယ်ယူရန်', a
   
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
   
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+  const res = await atomApiGet(`/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
   
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
 
   if (res && res.status === 'success' && res.data?.attribute?.purchaseLife) {
     const purchaseInfo = res.data.attribute.purchaseLife;
@@ -695,33 +537,16 @@ bot.action('buy_goldenfarm', async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
 
-  const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  if (res?._authFailed) {
-      await ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-      return;
-  }
+  const res = await atomApiGet(`/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
 
+
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
+  
   if (res && res.status === 'success') {
-    // Fetch updated balance
-    const buyAttr = res.data?.attribute;
-    let remain = buyAttr?.couponBalance ?? 
-                 buyAttr?.totalCoupon ?? 
-                 buyAttr?.couponBalance?.totalCoupon;
-    
-    if (remain === undefined || remain === null) {
-        const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-        if (getPackRes && getPackRes.status === 'success') {
-           const getAttr = getPackRes.data?.attribute;
-           remain = getAttr?.couponBalance ?? 
-                    getAttr?.couponBalance?.totalCoupon ?? 
-                    getAttr?.totalCoupon;
-        }
-    }
-    const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
-    await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
+    await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${res.data?.attribute?.couponBalance ?? '-'}`);
   } else {
     let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title;
     
@@ -760,182 +585,56 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူရန် စစ်ဆေးနေပါတယ်...");
+  const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
   
-  // Hit various endpoints
-  const ts = Date.now();
-  const dbV1 = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
-  const dbV2 = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
-  const msV1 = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
-  const msV2 = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/missions?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
-  let listV2  = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
-  let listV1  = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${ts}`);
+  // Appending unique timestamp forces CDN bypass/direct fetch at 12:00 AM past midnight
+  const listRes = await atomApiGet(`/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {
+    "Authorization": `Bearer ${sess.token}`
+  });
   
-  if (listV1?._authFailed || dbV1?._authFailed) {
-      await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-      return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
-  }
-
   let claimId = null;
-  let pointsToClaim: string | null = null;
-  let allItemsDebug = [];
-  
-  const isClaimedText = (lbl: string) => {
+  if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
+    const isClaimedText = (lbl: string) => {
       if (!lbl) return false;
       const val = lbl.toLowerCase();
       return (val.includes('claim') && (val.includes('ed') || val.includes('ing') || val.includes('done') || val.includes('already'))) || val.includes('ပြီး');
-  };
+    };
 
-  // Collect items from all endpoints
-  let allItems: any[] = [];
-  const sources = [
-      { name: "dbV1", data: dbV1 }, { name: "dbV2", data: dbV2 },
-      { name: "msV1", data: msV1 }, { name: "msV2", data: msV2 },
-      { name: "listV1", data: listV1 }, { name: "listV2", data: listV2 }
-  ];
-  
-  for (const src of sources) {
-      if (src.data && src.data.status === 'success') {
-          const attr = src.data.data?.attribute || src.data.attribute || {};
-          let items = attr.items || [];
-          if (!Array.isArray(items)) {
-              if (Array.isArray(attr.missionItems)) items = attr.missionItems;
-              else if (Array.isArray(attr.claimItems)) items = attr.claimItems;
-              else if (Array.isArray(attr.dailyItems)) items = attr.dailyItems;
-          }
-          if (Array.isArray(items) && items.length > 0) {
-              for (const it of items) {
-                  it._source = src.name;
-                  allItems.push(it);
-              }
-          }
-          // Some daily checkin might be a specific object in dashboard
-          if (attr.dailyCheckin) {
-              attr.dailyCheckin._source = src.name + "_dailyCheckin";
-              allItems.push(attr.dailyCheckin);
-          }
-      }
-  }
-  
-  for (const item of allItems) {
-      allItemsDebug.push(`- [${item._source}] ${item.title || item.name || item.campaign_name || 'Task'}: Pt ${item.point || '?'} (St: ${item.status || '-'}, Lbl: ${item.label || '-'}, En: ${item.enable || '-'})`);
-      
-      const titleStr = String(item.title || item.name || item.campaign_name || '').toLowerCase();
-      const stStr = String(item.status || '').toUpperCase();
-      
-      // Prioritize items that look like daily checking
-      if (titleStr.includes('daily') || titleStr.includes('check in') || titleStr.includes('checked in') || titleStr.includes('စစ်ဆေးရန်')) {
-           if (!isClaimedText(item.label) && stStr !== 'CLAIMED' && (item.enable === 1 || item.enable === true || stStr === 'AVAILABLE' || stStr === 'ACTIVE')) {
-               claimId = item.id || item.taskId || item.missionId;
-               pointsToClaim = String(item.point || item.points || '');
-               break;
-           }
-      }
+    const claimableItem = listRes.data.attribute.items.find((item: any) => 
+      (item.enable === 1 || item.enable === true) && 
+      item.label && 
+      !isClaimedText(item.label)
+    );
+    if (claimableItem) claimId = claimableItem.id;
   }
   
   if (!claimId) {
-      for (const item of allItems) {
-          const stStr = String(item.status || '').toUpperCase();
-          const isAvail = (stStr === 'AVAILABLE' || stStr === 'ACTIVE' || stStr === 'READY' || item.enable === 1 || item.enable === true);
-          const isClaimed = isClaimedText(item.label) || stStr === 'CLAIMED';
-          
-          if (isAvail && !isClaimed) {
-              claimId = item.id || item.taskId || item.missionId;
-              pointsToClaim = String(item.point || item.points || '');
-              break;
-          }
-      }
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
+    return ctx.reply("✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
   }
   
-  if (claimId && !pointsToClaim) {
-      const item = allItems.find((i: any) => i.id === claimId || i.taskId === claimId || i.missionId === claimId);
-      if (item && item.label) {
-          const match = item.label.match(/(\d+)\s*points?/i);
-          if (match) pointsToClaim = match[1];
-          else {
-              const numMatch = item.label.match(/\d+/);
-              if (numMatch) pointsToClaim = numMatch[0];
-          }
-      }
-  }
-  
-  if (!claimId) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    
-    let lastClaimedDate = "";
-    for (const item of allItems) {
-         if (item.claim_date) {
-             lastClaimedDate = String(item.claim_date).replace('|', ' ');
-             // Since list items are usually sorted newest first, the first claim_date we see in the lists is mostly the latest
-             // Wait, dbV1/V2 items come first in allItems. If they have claim_date, we take it.
-         }
-    }
-    
-    // To ensure we get the absolute latest if they are in standard format "DD/MMM/YYYY|hh:mm A"
-    try {
-        let maxTs = 0;
-        let latestDateStr = "";
-        for (const item of allItems) {
-             if (item.claim_date) {
-                 const dStr = String(item.claim_date).replace('|', ' ');
-                 const ts = Date.parse(dStr);
-                 if (!isNaN(ts) && ts > maxTs) {
-                     maxTs = ts;
-                     latestDateStr = dStr;
-                 }
-             }
-        }
-        if (latestDateStr) {
-             lastClaimedDate = latestDateStr;
-        }
-    } catch(e) {}
-    
-    if (!lastClaimedDate) lastClaimedDate = "Unknown";
-    
-    let msg = `✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။\n\nLast Claimed - ${lastClaimedDate}`;
-    return ctx.replyWithHTML(msg);
-  }
+  const bodyObj = { id: claimId };
+  const rawBody = JSON.stringify(bodyObj);
+  const checksum = generateChecksumNode(sess.userId.toString().trim(), rawBody);
 
+  const claimRes = await atomApiPost(`/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj, {
+    "Authorization": `Bearer ${sess.token}`,
+    "Checksum": checksum,
+    "X-Atom-Signature": checksum,
+    "X-Signature": checksum
+  });
   
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id);
   
-  const pointText = pointsToClaim ? String(pointsToClaim) : "Daily Point";
-  await ctx.reply(`🎁 ရယူနိုင်သော Daily Point - ${pointText} Pts`, Markup.inlineKeyboard([
-      [Markup.button.callback('ရယူမည်', `claim_point_${claimId}`)]
-  ]));
-});
-
-bot.action(/claim_point_(.+)/, async (ctx) => {
-  const claimId = ctx.match[1];
-  const sess = await getSession(ctx.from?.id);
-  if (!sess) {
-    await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
-    return;
-  }
-  
-  await ctx.answerCbQuery();
-  await ctx.editMessageText("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
-
-  const bodyObj = { id: isNaN(Number(claimId)) ? claimId : Number(claimId) };
-  let claimRes = await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
-  
-  if (!claimRes || claimRes.status !== 'success') {
-      claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
-  }
-  
-  if (claimRes?._authFailed) {
-      return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
-  }
-
   if (claimRes && claimRes.status === 'success') {
     const msg = claimRes.data?.attribute?.message || "အောင်မြင်ပါတယ်ဗျ။";
-    await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
+    await ctx.reply(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
     let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
     if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
         errMsg = claimRes.errors.message.title + " - " + errMsg;
     }
-    await ctx.editMessageText(`❌ ${errMsg}`);
+    await ctx.reply(`❌ ${errMsg}`);
   }
 });
 
@@ -950,9 +649,6 @@ export function startBot() {
     }
   });
 }
-
-// Automatically start the bot when executed directly
-startBot();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
