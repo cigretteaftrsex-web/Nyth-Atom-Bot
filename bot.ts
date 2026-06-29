@@ -83,10 +83,15 @@ async function atomApiPost(endpoint: string, data: any, headers: any = {}, retri
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data && typeof res.data === 'object') {
-        res.data.httpStatusCode = res.status;
+      if (res.data) {
+        if (typeof res.data === 'object') {
+          res.data.httpStatusCode = res.status;
+          return res.data;
+        } else {
+          return { _rawString: res.data, httpStatusCode: res.status, status: 'error' };
+        }
       }
-      return res.data;
+      return null;
     } catch (e: any) {
       if (i === retries - 1) {
         console.error("atomApiPost error:", e.response?.data || e.message);
@@ -110,10 +115,15 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data && typeof res.data === 'object') {
-        res.data.httpStatusCode = res.status;
+      if (res.data) {
+        if (typeof res.data === 'object') {
+          res.data.httpStatusCode = res.status;
+          return res.data;
+        } else {
+          return { _rawString: res.data, httpStatusCode: res.status, status: 'error' };
+        }
       }
-      return res.data;
+      return null;
     } catch (e: any) {
       if (i === retries - 1) {
         console.error("atomApiGet error:", e.response?.data || e.message);
@@ -430,6 +440,33 @@ bot.hears('🌾 ရွှေလယ်တော ကူပွန်', async (ctx) 
   }
 });
 
+function extractErrorMsg(res: any, defaultMsg: string): string {
+    if (!res) return defaultMsg;
+    if (typeof res === 'string') return res.substring(0, 100);
+    if (res._rawString) return (typeof res._rawString === 'string' ? res._rawString.substring(0, 100) : defaultMsg);
+    
+    let errMsg = defaultMsg;
+    if (typeof res.message === 'string') errMsg = res.message;
+    else if (res.errors) {
+        if (typeof res.errors.message === 'string') errMsg = res.errors.message;
+        else if (typeof res.errors.message?.message === 'string') errMsg = res.errors.message.message;
+        else if (typeof res.errors.title === 'string') errMsg = res.errors.title;
+        else if (typeof res.errors === 'string') errMsg = res.errors;
+    }
+    
+    if (res.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
+        errMsg = res.errors.message.title + " - " + errMsg;
+    }
+    
+    if (errMsg === defaultMsg && typeof res === 'object') {
+        const str = JSON.stringify(res);
+        if (str.length > 5 && str !== '{}') {
+             errMsg = defaultMsg + ` (Raw: ${str.substring(0, 100)})`;
+        }
+    }
+    return errMsg;
+}
+
 bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
@@ -454,10 +491,19 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
     return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
-  let maxLevel = 3;
+  let maxLevel = 1;
   if (dashRes.data?.attribute?.levelData) {
-    const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter((n: any) => !isNaN(n));
-    if (levels.length > 0) maxLevel = Math.max(...levels);
+    const unlockedLevels = dashRes.data.attribute.levelData
+       .filter((l: any) => l.isUnlock === 1 || l.isUnlock === true || l.isUnlocked === 1 || l.isUnlocked === true)
+       .map((l: any) => l.level)
+       .filter((n: any) => !isNaN(n));
+       
+    if (unlockedLevels.length > 0) {
+       maxLevel = Math.max(...unlockedLevels);
+    } else {
+       const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter((n: any) => !isNaN(n));
+       if (levels.length > 0) maxLevel = Math.max(...levels);
+    }
   }
 
   const bodyObj = { isCompleted: 1, currentPlayLevel: maxLevel, chosenPrize: "Instant" };
@@ -481,10 +527,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
-    let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title || "ကစားခွင့် မကျန်တော့ပါ။";
-    if (res?.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
-       errMsg = res.errors.message.title + " - " + errMsg;
-    }
+    const errMsg = extractErrorMsg(res, "ကစားခွင့် မကျန်တော့ပါ။");
     await ctx.reply(`❌ ${errMsg}`);
   }
 });
@@ -516,10 +559,18 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   let maxScore = 165;
   const levelData = dashRes.data?.attribute?.levelData;
   if (Array.isArray(levelData)) {
-    const extractedScores = levelData.map((l: any) => l.score || 0);
-    if (extractedScores.length > 0) {
-      const highest = Math.max(...extractedScores);
-      if (highest > 0) maxScore = highest;
+    const unlockedScores = levelData
+       .filter((l: any) => l.isUnlock === 1 || l.isUnlock === true || l.isUnlocked === 1 || l.isUnlocked === true)
+       .map((l: any) => Number(l.score) || 0)
+       .filter(n => n > 0);
+       
+    if (unlockedScores.length > 0) {
+      maxScore = Math.max(...unlockedScores);
+    } else {
+      const extractedScores = levelData.map((l: any) => Number(l.score) || 0).filter(n => n > 0);
+      if (extractedScores.length > 0) {
+        maxScore = Math.max(...extractedScores);
+      }
     }
   }
 
@@ -548,8 +599,8 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
-    const errorMsg = res?.message || res?.originalResponse?.message || "ကစားခွင့် မကျန်တော့ပါ။";
-    await ctx.reply(`❌ ${errorMsg}`);
+    const errMsg = extractErrorMsg(res, "ကစားခွင့် မကျန်တော့ပါ။");
+    await ctx.reply(`❌ ${errMsg}`);
   }
 });
 
@@ -629,7 +680,7 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
      const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
      await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
-     let errMsg = buyRes?.errors?.message?.message || buyRes?.message || buyRes?.errors?.title;
+     let errMsg = extractErrorMsg(buyRes, "လက်ကျန်ငွေ မလုံလောက်ပါ။");
      
      const resString = buyRes ? JSON.stringify(buyRes).toLowerCase() : "";
      const isInsufficient = !buyRes || 
@@ -641,18 +692,10 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
                             resString.includes("လုံလောက်") || 
                             resString.includes("ငွေ") ||
                             resString.includes("9010") ||
-                            resString.includes("9009") ||
-                            (errMsg && (
-                              errMsg.toLowerCase().includes("insufficient") ||
-                              errMsg.toLowerCase().includes("balance") ||
-                              errMsg.toLowerCase().includes("မလုံလောက်") ||
-                              errMsg.toLowerCase().includes("ငွေ")
-                            ));
+                            resString.includes("9009");
 
-     if (isInsufficient || !errMsg) {
+     if (isInsufficient) {
        errMsg = "လက်ကျန်ငွေ မလုံလောက်ပါ။";
-     } else if (buyRes?.errors?.message?.title && typeof buyRes.errors.message.title === 'string' && !buyRes.errors.message.title.includes("Failed") && !buyRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
-         errMsg = buyRes.errors.message.title + " - " + errMsg;
      }
 
      await ctx.editMessageText(`❌ ${errMsg}`);
@@ -727,7 +770,7 @@ bot.action('buy_goldenfarm', async (ctx) => {
     const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
-    let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title;
+    let errMsg = extractErrorMsg(res, "လက်ကျန်ငွေ မလုံလောက်ပါ။");
     
     const resString = res ? JSON.stringify(res).toLowerCase() : "";
     const isInsufficient = !res || 
@@ -739,18 +782,10 @@ bot.action('buy_goldenfarm', async (ctx) => {
                            resString.includes("လုံလောက်") || 
                            resString.includes("ငွေ") ||
                            resString.includes("9010") ||
-                           resString.includes("9009") ||
-                           (errMsg && (
-                             errMsg.toLowerCase().includes("insufficient") ||
-                             errMsg.toLowerCase().includes("balance") ||
-                             errMsg.toLowerCase().includes("မလုံလောက်") ||
-                             errMsg.toLowerCase().includes("ငွေ")
-                           ));
+                           resString.includes("9009");
 
-    if (isInsufficient || !errMsg) {
+    if (isInsufficient) {
       errMsg = "လက်ကျန်ငွေ မလုံလောက်ပါ။";
-    } else if (res?.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
-        errMsg = res.errors.message.title + " - " + errMsg;
     }
 
     if (typeof res === 'string' && res.includes('404')) {
@@ -935,10 +970,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
     const msg = claimRes.data?.attribute?.message || "အောင်မြင်ပါတယ်ဗျ။";
     await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
-    let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
-    if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
-        errMsg = claimRes.errors.message.title + " - " + errMsg;
-    }
+    const errMsg = extractErrorMsg(claimRes, "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
     await ctx.editMessageText(`❌ ${errMsg}`);
   }
 });
