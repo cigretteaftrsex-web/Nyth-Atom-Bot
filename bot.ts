@@ -1058,10 +1058,11 @@ bot.action('admin_dashboard', async (ctx) => {
   }).catch(console.error);
 });
 
-bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
+bot.action(/admin_users_list_(\d+)/, async (ctx) => {
   try {
+    console.log("admin_users_list triggered with page", ctx.match[1]);
     const adminId = process.env.ADMIN_USER_ID;
-    if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+    if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
     const page = parseInt(ctx.match[1]);
     const perPage = 10;
@@ -1082,7 +1083,6 @@ bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
     for (const user of usersSlice) {
       if (!user || typeof user !== 'object') continue;
       const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
-      // Safe HTML escape for name and username
       const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
       
@@ -1101,14 +1101,27 @@ bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
     inline_keyboard.push([{ text: '« Back to Admin', callback_data: 'admin_main' }]);
 
     await ctx.answerCbQuery().catch(() => {});
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } });
+    
+    try {
+      await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } });
+    } catch (e: any) {
+      console.error("Edit message failed, sending as new message. Error:", e.message);
+      if (!e.message.includes('message is not modified')) {
+          await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
+      }
+    }
   } catch (err: any) {
-    await ctx.answerCbQuery('Error: ' + err.message, { show_alert: true }).catch(() => {});
+    try {
+      await ctx.answerCbQuery('Error: ' + err.message, { show_alert: true });
+    } catch (e) {}
+    try {
+      await ctx.reply('CRITICAL ERROR: ' + err.message + '\n' + err.stack);
+    } catch (e) {}
     console.error("admin_users_list error:", err);
   }
 });
 
-bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
+bot.action(/admin_toggle_ban_(\d+)_(\d+)/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
