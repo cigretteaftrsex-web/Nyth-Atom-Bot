@@ -1,0 +1,21 @@
+{
+  "name": "atom-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for ATOM MyTM automation",
+  "main": "bot.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx bot.ts",
+    "dev": "tsx watch bot.ts"
+  },
+  "dependencies": {
+    "axios": "^1.17.0",
+    "dotenv": "^17.4.2",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.2"
+  }
+}
