@@ -352,7 +352,11 @@ const authWizard = new Scenes.WizardScene<any>(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if ('text' in ctx.message) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery("လုပ်ဆောင်ချက်ကို ဆက်လုပ်ပါ သို့မဟုတ် /cancel ကိုနှိပ်ပါ။").catch(() => {});
+      return;
+    }
+    if (ctx.message && 'text' in ctx.message) {
       if (isMenuCommand(ctx.message.text)) {
         await ctx.scene.leave();
         await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
@@ -376,7 +380,7 @@ const authWizard = new Scenes.WizardScene<any>(
       
       if (res && res.status === 'success' && res.data?.attribute?.code) {
         ctx.wizard.state.otpCode = res.data.attribute.code;
-        await ctx.reply(`📨 +95${phone} ကို OTP ပို့လိုက်ပါပြီ။`);
+        await ctx.reply(`📨 +95${phone} ကို OTP ပို့လိုက်ပါပြီ။\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)`);
         return ctx.wizard.next();
       } else {
         await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
@@ -385,7 +389,11 @@ const authWizard = new Scenes.WizardScene<any>(
     }
   },
   async (ctx) => {
-    if ('text' in ctx.message) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery("လုပ်ဆောင်ချက်ကို ဆက်လုပ်ပါ သို့မဟုတ် /cancel ကိုနှိပ်ပါ။").catch(() => {});
+      return;
+    }
+    if (ctx.message && 'text' in ctx.message) {
       if (isMenuCommand(ctx.message.text)) {
         await ctx.scene.leave();
         await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
@@ -1072,21 +1080,22 @@ bot.action('admin_dashboard', async (ctx) => {
   }).catch(console.error);
 });
 
-bot.action((value: string) => {
-  if (value && value.startsWith('admin_users_list_')) {
-    return [value] as unknown as RegExpExecArray;
-  }
-  return null;
-}, async (ctx) => {
+bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   try {
-    const dataStr = (ctx.callbackQuery as any).data;
-    console.log("admin_users_list triggered with data", dataStr);
-    const page = parseInt(dataStr.split('_')[3]) || 0;
+    const page = parseInt(ctx.match[1]) || 0;
+    console.log("admin_users_list triggered with page", page);
     const adminId = process.env.ADMIN_USER_ID;
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     const perPage = 10;
     const db = await getDb();
-    const usersArray = Object.values(db.users || {}) as any[];
+    
+    const usersArray = Object.entries(db.users || {}).map(([idStr, u]: [string, any]) => ({
+      id: u?.id || idStr,
+      first_name: u?.first_name || 'Unknown',
+      last_name: u?.last_name || '',
+      username: u?.username || '',
+      banned: !!u?.banned
+    }));
     
     const totalPages = Math.ceil(usersArray.length / perPage);
     const start = page * perPage;
@@ -1100,8 +1109,7 @@ bot.action((value: string) => {
     const inline_keyboard: any[][] = [];
 
     for (const user of usersSlice) {
-      if (!user || typeof user !== 'object') continue;
-      const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
+      const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
       const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
       
@@ -1140,19 +1148,12 @@ bot.action((value: string) => {
   }
 });
 
-bot.action((value: string) => {
-  if (value && value.startsWith('admin_toggle_ban_')) {
-    return [value] as unknown as RegExpExecArray;
-  }
-  return null;
-}, async (ctx) => {
+bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
-  const dataStr = (ctx.callbackQuery as any).data;
-  const parts = dataStr.split('_');
-  const userId = parts[3];
-  const page = parts[4];
+  const userId = ctx.match[1];
+  const page = ctx.match[2];
   
   const db = await getDb();
   if (db.users && db.users[userId]) {
@@ -1172,7 +1173,13 @@ bot.action((value: string) => {
   // Refresh the page
   ctx.match[1] = page; 
   const perPage = 10;
-  const usersArray = Object.values(db.users || {}) as any[];
+  const usersArray = Object.entries(db.users || {}).map(([idStr, u]: [string, any]) => ({
+    id: u?.id || idStr,
+    first_name: u?.first_name || 'Unknown',
+    last_name: u?.last_name || '',
+    username: u?.username || '',
+    banned: !!u?.banned
+  }));
   const totalPages = Math.ceil(usersArray.length / perPage);
   const start = parseInt(page) * perPage;
   const usersSlice = usersArray.slice(start, start + perPage);
@@ -1181,8 +1188,7 @@ bot.action((value: string) => {
   const inline_keyboard: any[][] = [];
 
   for (const user of usersSlice) {
-    if (!user || typeof user !== 'object') continue;
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
     const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
