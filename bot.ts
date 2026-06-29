@@ -716,22 +716,24 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   let pointsToClaim: string | null = null;
   
   if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
-    const isClaimedText = (lbl: string) => {
-      if (!lbl) return false;
-      const val = lbl.toLowerCase();
-      return (val.includes('claim') && (val.includes('ed') || val.includes('ing') || val.includes('done') || val.includes('already'))) || val.includes('ပြီး');
-    };
-
-    const claimableItem = listRes.data.attribute.items.find((item: any) => 
-      (item.enable === 1 || item.enable === true) && 
-      item.label && 
-      !isClaimedText(item.label)
+    const items = listRes.data.attribute.items;
+    
+    const claimableItem = items.find((item: any) => 
+      item.enable === 1 || 
+      item.enable === true || 
+      item.status === 'CLAIMABLE' || 
+      item.status === 'AVAILABLE' ||
+      item.status === 1 ||
+      (item.action && item.action.toLowerCase() === 'claim') ||
+      (item.label && !item.label.toLowerCase().includes('claimed') && !item.label.toLowerCase().includes('done'))
     );
     
     if (claimableItem) {
         claimId = claimableItem.id;
-        if (claimableItem.point) {
+        if (claimableItem.point !== undefined && claimableItem.point !== null) {
             pointsToClaim = String(claimableItem.point);
+        } else if (claimableItem.pointAmount) {
+            pointsToClaim = String(claimableItem.pointAmount);
         } else if (claimableItem.label) {
             const match = claimableItem.label.match(/(\d+)\s*points?/i);
             if (match) {
@@ -742,6 +744,9 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
                     pointsToClaim = numMatch[0];
                 }
             }
+        } else if (claimableItem.reward) {
+           const numMatch = String(claimableItem.reward).match(/\d+/);
+           if (numMatch) pointsToClaim = numMatch[0];
         }
     }
   }
@@ -778,15 +783,34 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 
   if (claimRes && claimRes.status === 'success') {
-    const msg = claimRes.data?.attribute?.message || "အောင်မြင်ပါတယ်ဗျ။";
+    const msg = claimRes.data?.attribute?.message || claimRes.message || "အောင်မြင်ပါတယ်ဗျ။";
     await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
-    let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
-    if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
-        errMsg = claimRes.errors.message.title + " - " + errMsg;
+    // Fallback to v2 if v1 fails
+    const claimResV2 = await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+    
+    if (claimResV2 && claimResV2.status === 'success') {
+      const msg = claimResV2.data?.attribute?.message || claimResV2.message || "အောင်မြင်ပါတယ်ဗျ။";
+      await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
+    } else {
+      let errMsg = claimResV2?.errors?.message?.message || claimResV2?.message || claimResV2?.errors?.title || claimRes?.message || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
+      if (claimResV2?.errors?.message?.title && typeof claimResV2.errors.message.title === 'string' && !claimResV2.errors.message.title.includes("Failed") && !claimResV2.errors.message.title.includes("မအောင်မြင်ပါ")) {
+          errMsg = claimResV2.errors.message.title + " - " + errMsg;
+      }
+      await ctx.editMessageText(`❌ ${errMsg}`);
     }
-    await ctx.editMessageText(`❌ ${errMsg}`);
   }
+});
+
+bot.command('users', async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
+    return;
+  }
+  
+  const db = await getDb();
+  const userCount = Object.keys(db.sessions || {}).length;
+  await ctx.reply(`📊 လက်ရှိ Bot ကို အသုံးပြုနေသော User အရေအတွက်: ${userCount} ယောက်`);
 });
 
 export function startBot() {
