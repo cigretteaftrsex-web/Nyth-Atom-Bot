@@ -83,15 +83,10 @@ async function atomApiPost(endpoint: string, data: any, headers: any = {}, retri
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data) {
-        if (typeof res.data === 'object') {
-          res.data.httpStatusCode = res.status;
-          return res.data;
-        } else {
-          return { _rawString: res.data, httpStatusCode: res.status, status: 'error' };
-        }
+      if (res.data && typeof res.data === 'object') {
+        res.data.httpStatusCode = res.status;
       }
-      return null;
+      return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
         console.error("atomApiPost error:", e.response?.data || e.message);
@@ -115,15 +110,10 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
         validateStatus: () => true,
         timeout: 10000
       });
-      if (res.data) {
-        if (typeof res.data === 'object') {
-          res.data.httpStatusCode = res.status;
-          return res.data;
-        } else {
-          return { _rawString: res.data, httpStatusCode: res.status, status: 'error' };
-        }
+      if (res.data && typeof res.data === 'object') {
+        res.data.httpStatusCode = res.status;
       }
-      return null;
+      return res.data;
     } catch (e: any) {
       if (i === retries - 1) {
         console.error("atomApiGet error:", e.response?.data || e.message);
@@ -137,68 +127,65 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
-  if (res.status === 'success') return false;
-  
+  if (res.httpStatusCode === 401 || res.httpStatusCode === 403) return true;
+  if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
   const str = JSON.stringify(res).toLowerCase();
-  if (str.includes('maintenance') || str.includes('server error') || str.includes('timeout')) return false;
-
-  // We only trigger refresh for actual token-related errors to avoid false auth failures.
-  if (str.includes('unauthenticated') || 
-      str.includes('token expired') || 
-      str.includes('jwt expired')) {
-      return true;
-  }
-  
-  // If the API returns 401 but no specific unauthenticated message, it might be a signature issue.
-  // We should NOT treat it as token expiration unless we are sure.
-  if (res.httpStatusCode === 401 && (str.includes('invalid') || str.includes('signature'))) {
-      return false; // Not a token expiration, probably signature failure
-  }
-  
-  // As a fallback, if it's 401 and doesn't match above, we can assume it might be expired, but 
-  // actually let's only return true if it explicitly says unauthenticated to prevent false logouts.
-  return false;
+  return str.includes('unauthenticated') || 
+         str.includes('unauthorized') || 
+         str.includes('token expired') || 
+         str.includes('invalid token') ||
+         str.includes('9001') ||
+         str.includes('token is invalid') ||
+         str.includes('signature verification failed');
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
     const endpoints = [
-      `/mytmapi/v2/my/auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
+      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
       `/mytmapi/v1/my/auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`,
-      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=${sess.userId || -1}&v=4.16.0`
+      `/mytmapi/v1/my/local-auth/refresh-token?msisdn=${sess.msisdn}&userid=-1&v=4.16.0`
     ];
     
     const uId = sess.userId ? sess.userId.toString().trim() : "";
     
     for (const url of endpoints) {
-        const payloadsToTry = [
-            { refresh_token: sess.refreshToken },
-            { refreshToken: sess.refreshToken },
-            { refresh_token: sess.refreshToken, msisdn: sess.msisdn },
-            { refreshToken: sess.refreshToken, msisdn: sess.msisdn }
-        ];
-
-        for (const bodyObj of payloadsToTry) {
-            const rawBody = JSON.stringify(bodyObj);
-            const checksum = generateChecksumNode(uId, rawBody);
-            const headers = {
-               "Checksum": checksum,
-               "X-Atom-Signature": checksum,
-               "X-Signature": checksum,
-               "Authorization": `Bearer ${sess.token}`
+        // Try with refresh_token key
+        const body1 = { refresh_token: sess.refreshToken };
+        const rawBody1 = JSON.stringify(body1);
+        const checksum1 = generateChecksumNode(uId, rawBody1);
+        const headers1 = {
+           "Checksum": checksum1,
+           "X-Atom-Signature": checksum1,
+           "X-Signature": checksum1,
+           "Authorization": `Bearer ${sess.token}`
+        };
+        
+        let res = await atomApiPost(url, body1, headers1, 1);
+        
+        // Try with refreshToken key if body1 failed
+        if (!res || res.status !== 'success') {
+           const body2 = { refreshToken: sess.refreshToken };
+           const rawBody2 = JSON.stringify(body2);
+           const checksum2 = generateChecksumNode(uId, rawBody2);
+           const headers2 = {
+              "Checksum": checksum2,
+              "X-Atom-Signature": checksum2,
+              "X-Signature": checksum2,
+              "Authorization": `Bearer ${sess.token}`
+           };
+           res = await atomApiPost(url, body2, headers2, 1);
+        }
+        
+        if (res && res.status === 'success' && res.data?.attribute) {
+            const payload = res.data.attribute;
+            const newSess = {
+              token: payload.token || sess.token,
+              msisdn: payload.msisdn || sess.msisdn,
+              userId: payload.user_id || sess.userId,
+              refreshToken: payload.refresh_token || sess.refreshToken
             };
-            
-            const res = await atomApiPost(url, rawBody, headers, 1);
-            if (res && res.status === 'success' && res.data?.attribute) {
-                const payload = res.data.attribute;
-                const newSess = {
-                  token: payload.token || sess.token,
-                  msisdn: payload.msisdn || sess.msisdn,
-                  userId: payload.user_id || sess.userId,
-                  refreshToken: payload.refresh_token || sess.refreshToken
-                };
-                await saveSession(tgUserId, newSess);
-                return newSess;
-            }
+            await saveSession(tgUserId, newSess);
+            return newSess;
         }
     }
     return null;
@@ -242,7 +229,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
     ...customHeaders
   };
   
-  let res = await atomApiPost(endpoint, rawBody, headers);
+  let res = await atomApiPost(endpoint, bodyObj, headers);
   
   if (res && res.status !== 'success' && isTokenExpired(res)) {
      const newSess = await performTokenRefresh(tgUserId, sess);
@@ -252,7 +239,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        headers["Checksum"] = newChecksum;
        headers["X-Atom-Signature"] = newChecksum;
        headers["X-Signature"] = newChecksum;
-       res = await atomApiPost(endpoint, rawBody, headers);
+       res = await atomApiPost(endpoint, bodyObj, headers);
      } else {
        if (res && typeof res === 'object') {
          res._authFailed = true;
@@ -440,33 +427,6 @@ bot.hears('🌾 ရွှေလယ်တော ကူပွန်', async (ctx) 
   }
 });
 
-function extractErrorMsg(res: any, defaultMsg: string): string {
-    if (!res) return defaultMsg;
-    if (typeof res === 'string') return res.substring(0, 150);
-    if (res._rawString) return (typeof res._rawString === 'string' ? res._rawString.substring(0, 150) : defaultMsg);
-    
-    let errMsg = defaultMsg;
-    if (typeof res.message === 'string' && res.message.trim() !== '') errMsg = res.message;
-    else if (res.errors) {
-        if (typeof res.errors.message === 'string') errMsg = res.errors.message;
-        else if (typeof res.errors.message?.message === 'string') errMsg = res.errors.message.message;
-        else if (typeof res.errors.title === 'string') errMsg = res.errors.title;
-        else if (typeof res.errors === 'string') errMsg = res.errors;
-    }
-    
-    if (res.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
-        errMsg = res.errors.message.title + " - " + errMsg;
-    }
-    
-    if (errMsg === defaultMsg && typeof res === 'object') {
-        const str = JSON.stringify(res);
-        if (str.length > 5 && str !== '{}') {
-             errMsg = defaultMsg + `\n(Debug: ${str.substring(0, 200)})`;
-        }
-    }
-    return errMsg;
-}
-
 bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
@@ -491,19 +451,10 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
     return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
-  let maxLevel = 1;
+  let maxLevel = 3;
   if (dashRes.data?.attribute?.levelData) {
-    const unlockedLevels = dashRes.data.attribute.levelData
-       .filter((l: any) => l.isUnlock === 1 || l.isUnlock === true || l.isUnlocked === 1 || l.isUnlocked === true)
-       .map((l: any) => l.level)
-       .filter((n: any) => !isNaN(n));
-       
-    if (unlockedLevels.length > 0) {
-       maxLevel = Math.max(...unlockedLevels);
-    } else {
-       const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter((n: any) => !isNaN(n));
-       if (levels.length > 0) maxLevel = Math.max(...levels);
-    }
+    const levels = dashRes.data.attribute.levelData.map((l: any) => l.level).filter((n: any) => !isNaN(n));
+    if (levels.length > 0) maxLevel = Math.max(...levels);
   }
 
   const bodyObj = { isCompleted: 1, currentPlayLevel: maxLevel, chosenPrize: "Instant" };
@@ -527,7 +478,10 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
-    const errMsg = extractErrorMsg(res, "ကစားခွင့် မကျန်တော့ပါ။");
+    let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title || "ကစားခွင့် မကျန်တော့ပါ။";
+    if (res?.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
+       errMsg = res.errors.message.title + " - " + errMsg;
+    }
     await ctx.reply(`❌ ${errMsg}`);
   }
 });
@@ -559,18 +513,10 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   let maxScore = 165;
   const levelData = dashRes.data?.attribute?.levelData;
   if (Array.isArray(levelData)) {
-    const unlockedScores = levelData
-       .filter((l: any) => l.isUnlock === 1 || l.isUnlock === true || l.isUnlocked === 1 || l.isUnlocked === true)
-       .map((l: any) => Number(l.score) || 0)
-       .filter(n => n > 0);
-       
-    if (unlockedScores.length > 0) {
-      maxScore = Math.max(...unlockedScores);
-    } else {
-      const extractedScores = levelData.map((l: any) => Number(l.score) || 0).filter(n => n > 0);
-      if (extractedScores.length > 0) {
-        maxScore = Math.max(...extractedScores);
-      }
+    const extractedScores = levelData.map((l: any) => l.score || 0);
+    if (extractedScores.length > 0) {
+      const highest = Math.max(...extractedScores);
+      if (highest > 0) maxScore = highest;
     }
   }
 
@@ -599,8 +545,8 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
     await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
-    const errMsg = extractErrorMsg(res, "ကစားခွင့် မကျန်တော့ပါ။");
-    await ctx.reply(`❌ ${errMsg}`);
+    const errorMsg = res?.message || res?.originalResponse?.message || "ကစားခွင့် မကျန်တော့ပါ။";
+    await ctx.reply(`❌ ${errorMsg}`);
   }
 });
 
@@ -634,8 +580,7 @@ bot.hears('🎟️ TohToh Live ဝယ်ယူရန်', async (ctx) => {
 });
 
 bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
-  const offerIdStr = ctx.match[1];
-  const offerId = isNaN(Number(offerIdStr)) ? offerIdStr : Number(offerIdStr);
+  const offerId = ctx.match[1];
   const sess = await getSession(ctx.from?.id);
   if (!sess) {
     await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
@@ -680,7 +625,7 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
      const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
      await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
-     let errMsg = extractErrorMsg(buyRes, "လက်ကျန်ငွေ မလုံလောက်ပါ။");
+     let errMsg = buyRes?.errors?.message?.message || buyRes?.message || buyRes?.errors?.title;
      
      const resString = buyRes ? JSON.stringify(buyRes).toLowerCase() : "";
      const isInsufficient = !buyRes || 
@@ -692,10 +637,18 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
                             resString.includes("လုံလောက်") || 
                             resString.includes("ငွေ") ||
                             resString.includes("9010") ||
-                            resString.includes("9009");
+                            resString.includes("9009") ||
+                            (errMsg && (
+                              errMsg.toLowerCase().includes("insufficient") ||
+                              errMsg.toLowerCase().includes("balance") ||
+                              errMsg.toLowerCase().includes("မလုံလောက်") ||
+                              errMsg.toLowerCase().includes("ငွေ")
+                            ));
 
-     if (isInsufficient) {
+     if (isInsufficient || !errMsg) {
        errMsg = "လက်ကျန်ငွေ မလုံလောက်ပါ။";
+     } else if (buyRes?.errors?.message?.title && typeof buyRes.errors.message.title === 'string' && !buyRes.errors.message.title.includes("Failed") && !buyRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
+         errMsg = buyRes.errors.message.title + " - " + errMsg;
      }
 
      await ctx.editMessageText(`❌ ${errMsg}`);
@@ -770,7 +723,7 @@ bot.action('buy_goldenfarm', async (ctx) => {
     const finalRemaining = (remain !== undefined && remain !== null) ? remain : '-';
     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${finalRemaining}`);
   } else {
-    let errMsg = extractErrorMsg(res, "လက်ကျန်ငွေ မလုံလောက်ပါ။");
+    let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title;
     
     const resString = res ? JSON.stringify(res).toLowerCase() : "";
     const isInsufficient = !res || 
@@ -782,10 +735,18 @@ bot.action('buy_goldenfarm', async (ctx) => {
                            resString.includes("လုံလောက်") || 
                            resString.includes("ငွေ") ||
                            resString.includes("9010") ||
-                           resString.includes("9009");
+                           resString.includes("9009") ||
+                           (errMsg && (
+                             errMsg.toLowerCase().includes("insufficient") ||
+                             errMsg.toLowerCase().includes("balance") ||
+                             errMsg.toLowerCase().includes("မလုံလောက်") ||
+                             errMsg.toLowerCase().includes("ငွေ")
+                           ));
 
-    if (isInsufficient) {
+    if (isInsufficient || !errMsg) {
       errMsg = "လက်ကျန်ငွေ မလုံလောက်ပါ။";
+    } else if (res?.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
+        errMsg = res.errors.message.title + " - " + errMsg;
     }
 
     if (typeof res === 'string' && res.includes('404')) {
@@ -970,7 +931,10 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
     const msg = claimRes.data?.attribute?.message || "အောင်မြင်ပါတယ်ဗျ။";
     await ctx.editMessageText(`🎉 အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
-    const errMsg = extractErrorMsg(claimRes, "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
+    let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
+    if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
+        errMsg = claimRes.errors.message.title + " - " + errMsg;
+    }
     await ctx.editMessageText(`❌ ${errMsg}`);
   }
 });
