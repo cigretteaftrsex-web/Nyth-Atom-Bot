@@ -1059,48 +1059,53 @@ bot.action('admin_dashboard', async (ctx) => {
 });
 
 bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+  try {
+    const adminId = process.env.ADMIN_USER_ID;
+    if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
-  const page = parseInt(ctx.match[1]);
-  const perPage = 10;
-  const db = await getDb();
-  const usersArray = Object.values(db.users || {}) as any[];
-  
-  const totalPages = Math.ceil(usersArray.length / perPage);
-  const start = page * perPage;
-  const usersSlice = usersArray.slice(start, start + perPage);
-
-  let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\n`;
-  if (usersSlice.length === 0) {
-    msg += "No users found.";
-  }
-
-  const inline_keyboard: any[][] = [];
-
-  for (const user of usersSlice) {
-    if (!user || typeof user !== 'object') continue;
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
-    // Safe HTML escape for name and username
-    const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeUsername = user.username ? user.username.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const page = parseInt(ctx.match[1]);
+    const perPage = 10;
+    const db = await getDb();
+    const usersArray = Object.values(db.users || {}) as any[];
     
-    const status = user.banned ? '🔴 Banned' : '🟢 Active';
-    const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
-    const actionData = `admin_toggle_ban_${user.id}_${page}`;
-    inline_keyboard.push([{ text: actionText, callback_data: actionData }]);
-    msg += `ID: <code>${user.id}</code> | ${status}\n👤 ${safeName} ${safeUsername ? `(@${safeUsername})` : ''}\n\n`;
+    const totalPages = Math.ceil(usersArray.length / perPage);
+    const start = page * perPage;
+    const usersSlice = usersArray.slice(start, start + perPage);
+
+    let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\n`;
+    if (usersSlice.length === 0) {
+      msg += "No users found.";
+    }
+
+    const inline_keyboard: any[][] = [];
+
+    for (const user of usersSlice) {
+      if (!user || typeof user !== 'object') continue;
+      const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
+      // Safe HTML escape for name and username
+      const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+      
+      const status = user.banned ? '🔴 Banned' : '🟢 Active';
+      const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
+      const actionData = `admin_toggle_ban_${user.id}_${page}`;
+      inline_keyboard.push([{ text: actionText, callback_data: actionData }]);
+      msg += `ID: <code>${user.id}</code> | ${status}\n👤 ${safeName} ${safeUsername ? `(@${safeUsername})` : ''}\n\n`;
+    }
+
+    const navRow = [];
+    if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
+    if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
+    if (navRow.length > 0) inline_keyboard.push(navRow);
+    
+    inline_keyboard.push([{ text: '« Back to Admin', callback_data: 'admin_main' }]);
+
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } });
+  } catch (err: any) {
+    await ctx.answerCbQuery('Error: ' + err.message, { show_alert: true }).catch(() => {});
+    console.error("admin_users_list error:", err);
   }
-
-  const navRow = [];
-  if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
-  if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
-  if (navRow.length > 0) inline_keyboard.push(navRow);
-  
-  inline_keyboard.push([{ text: '« Back to Admin', callback_data: 'admin_main' }]);
-
-  await ctx.answerCbQuery().catch(() => {});
-  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
 });
 
 bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
@@ -1139,8 +1144,8 @@ bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   for (const user of usersSlice) {
     if (!user || typeof user !== 'object') continue;
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
-    const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeUsername = user.username ? user.username.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
     const status = user.banned ? '🔴 Banned' : '🟢 Active';
     const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
