@@ -218,8 +218,11 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
 }
 
 const isMenuCommand = (text: string) => {
-  const menu = ['🔑 အကောင့်ဝင်ရန်', '🔄 အကောင့်ထွက်ရန်', '💰 လက်ကျန်ငွေစစ်ရန်', '📊 ပွိုင့်စစ်ရန်', '🎟️ TohToh ကူပွန်', '🎮 TohToh ဆော့ရန်', '🎟️ TohToh Live ဝယ်ယူရန်', '🌾 ရွှေလယ်တော ကူပွန်', '🐔 ရွှေလယ်တော ဆော့ရန်', '🌾 ရွှေလယ်တော Live ဝယ်ယူရန်', '🎁 Daily Point Claim', '/start', '/cancel'];
-  return menu.includes(text);
+  if (!text) return false;
+  if (text.startsWith('/')) return true;
+  const keywords = ['အကောင့်', 'လက်ကျန်', 'ပွိုင့်', 'tohtoh', 'ရွှေလယ်တော', 'point', 'claim'];
+  const lower = text.toLowerCase();
+  return keywords.some(k => lower.includes(k));
 };
 
 const authWizard = new Scenes.WizardScene<any>(
@@ -741,14 +744,25 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
     const items = listRes.data.attribute.items;
     
-    // STRICT FILTER: Only match the exact item that is claimable TODAY
-    const claimableItem = items.find((item: any) => 
-      item.enable === 1 || 
-      item.enable === true || 
-      (typeof item.status === 'string' && ['CLAIMABLE', 'AVAILABLE', 'READY'].includes(item.status.toUpperCase())) ||
-      item.status === 1 ||
-      item.isClaimable === true
-    );
+    // Broadest filter to catch the claimable item correctly
+    const claimableItem = items.find((item: any) => {
+      // 1. Explicitly claimable signals
+      if (item.enable === 1 || item.enable === true) return true;
+      if (typeof item.status === 'string' && ['CLAIMABLE', 'AVAILABLE', 'READY', 'CLAIM', 'ACTIVE'].includes(item.status.toUpperCase())) return true;
+      if (item.status === 1 || item.isClaimable === true) return true;
+      
+      const str = JSON.stringify(item).toLowerCase();
+      
+      // 2. Explicitly claimed or disabled signals (SKIP)
+      if (item.status === 'CLAIMED' || item.status === 'COMPLETED' || item.isClaimed || item.enable === 0 || item.enable === false) return false;
+      if (str.includes('"status":"claimed"') || str.includes('"claimed":true') || str.includes('already claimed') || str.includes('done')) return false;
+
+      // 3. Keyword matching - if "claim" is anywhere in the properties (e.g. action: "Claim", buttonText: "Claim")
+      if (str.includes('claim')) return true;
+
+      // 4. Fallback: anything with an ID and points that hasn't been rejected
+      return !!item.id && !!(item.point || item.points || item.pointAmount || item.reward || item.amount || item.value);
+    });
     
     if (claimableItem) {
         claimId = claimableItem.id;
