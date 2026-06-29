@@ -1,3 +1,17 @@
+import fsSync from 'fs';
+import pathSync from 'path';
+const logStream = fsSync.createWriteStream(pathSync.join(process.cwd(), 'bot_debug.log'), { flags: 'a' });
+const origLog = console.log;
+const origErr = console.error;
+console.log = function(...args) {
+  origLog(...args);
+  logStream.write('[LOG] ' + args.join(' ') + '\n');
+};
+console.error = function(...args) {
+  origErr(...args);
+  logStream.write('[ERR] ' + args.join(' ') + '\n');
+};
+
 import { Telegraf, Scenes, session, Markup } from 'telegraf';
 import axios from 'axios';
 import crypto from 'crypto';
@@ -1058,13 +1072,18 @@ bot.action('admin_dashboard', async (ctx) => {
   }).catch(console.error);
 });
 
-bot.action(/admin_users_list_(\d+)/, async (ctx) => {
+bot.action((value: string) => {
+  if (value && value.startsWith('admin_users_list_')) {
+    return [value] as unknown as RegExpExecArray;
+  }
+  return null;
+}, async (ctx) => {
   try {
-    console.log("admin_users_list triggered with page", ctx.match[1]);
+    const dataStr = (ctx.callbackQuery as any).data;
+    console.log("admin_users_list triggered with data", dataStr);
+    const page = parseInt(dataStr.split('_')[3]) || 0;
     const adminId = process.env.ADMIN_USER_ID;
-    if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
-
-    const page = parseInt(ctx.match[1]);
+    if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     const perPage = 10;
     const db = await getDb();
     const usersArray = Object.values(db.users || {}) as any[];
@@ -1121,12 +1140,19 @@ bot.action(/admin_users_list_(\d+)/, async (ctx) => {
   }
 });
 
-bot.action(/admin_toggle_ban_(\d+)_(\d+)/, async (ctx) => {
+bot.action((value: string) => {
+  if (value && value.startsWith('admin_toggle_ban_')) {
+    return [value] as unknown as RegExpExecArray;
+  }
+  return null;
+}, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
-  const userId = ctx.match[1];
-  const page = ctx.match[2];
+  const dataStr = (ctx.callbackQuery as any).data;
+  const parts = dataStr.split('_');
+  const userId = parts[3];
+  const page = parts[4];
   
   const db = await getDb();
   if (db.users && db.users[userId]) {
@@ -1317,6 +1343,14 @@ app.post('/api/broadcast', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Admin API server listening on port ${PORT}`);
+});
+
+bot.on('callback_query', async (ctx, next) => {
+  console.log("Unhandled callback query:", 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : ctx.callbackQuery);
+  try {
+    await ctx.answerCbQuery("Not handled by any action.", { show_alert: true });
+  } catch (e) {}
+  return next();
 });
 
 // Automatically start the bot when executed directly
