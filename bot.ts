@@ -27,10 +27,11 @@ async function getDb() {
     const data = await fs.readFile(DB_FILE, 'utf-8');
     const parsed = JSON.parse(data);
     if (!parsed.sessions) parsed.sessions = {};
+    if (!parsed.users) parsed.users = {};
     if (!parsed.stats) parsed.stats = { totalUsers: 0, commandUsage: {} };
     return parsed;
   } catch (e) {
-    return { sessions: {}, stats: { totalUsers: 0, commandUsage: {} } };
+    return { sessions: {}, users: {}, stats: { totalUsers: 0, commandUsage: {} } };
   }
 }
 
@@ -60,6 +61,32 @@ async function clearSession(tgUserId: number) {
   const db = await getDb();
   delete db.sessions[tgUserId.toString()];
   await saveDb(db);
+}
+
+async function recordUser(from: any) {
+  if (!from) return;
+  const db = await getDb();
+  const idStr = from.id.toString();
+  if (!db.users) db.users = {};
+  
+  const existing = db.users[idStr] || {};
+  db.users[idStr] = {
+    ...existing,
+    id: from.id,
+    first_name: from.first_name,
+    last_name: from.last_name,
+    username: from.username,
+    is_bot: from.is_bot,
+    last_seen: new Date().toISOString()
+  };
+  await saveDb(db);
+}
+
+async function isUserBanned(tgUserId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db.users) return false;
+  const user = db.users[tgUserId.toString()];
+  return user ? !!user.banned : false;
 }
 
 async function recordCommand(commandName: string) {
@@ -388,6 +415,15 @@ bot.use(session());
 bot.use(stage.middleware());
 
 bot.use(async (ctx, next) => {
+  if (ctx.from) {
+    await recordUser(ctx.from).catch(console.error);
+    const banned = await isUserBanned(ctx.from.id);
+    if (banned) {
+      // Return early and optionally notify the user
+      return ctx.reply("❌ သင်၏အကောင့်ကို ပိတ်ပင်ထားပါသည်။ (You are banned)").catch(() => {});
+    }
+  }
+
   if (ctx.message && 'text' in ctx.message) {
     const text = ctx.message.text;
     if (text.startsWith('/')) {
@@ -943,64 +979,200 @@ bot.command('admin', async (ctx) => {
     return;
   }
   
-  await ctx.reply('🛠 **Admin Panel**\n\nအောက်ပါ Menu များမှ ရွေးချယ်ပါ:', {
-    parse_mode: 'Markdown',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '👥 Total Users', callback_data: 'admin_users' }],
-        [{ text: '📊 Command Stats', callback_data: 'admin_stats' }]
-      ]
-    }
-  });
+  await showAdminMenu(ctx);
 });
 
-bot.action('admin_users', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return ctx.answerCbQuery('You are not authorized.', { show_alert: true });
+async function showAdminMenu(ctx: any) {
+  const msg = '🛠 **Nyth Admin Panel**\n\nအောက်ပါ Menu များမှ ရွေးချယ်ပါ:';
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '📊 Dashboard (Stats)', callback_data: 'admin_dashboard' }],
+      [{ text: '👥 User Management', callback_data: 'admin_users_list_0' }],
+      [{ text: '📢 Broadcast', callback_data: 'admin_broadcast_info' }]
+    ]
+  };
+  
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(msg, { parse_mode: 'Markdown', reply_markup: keyboard });
+  } else {
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: keyboard });
   }
+}
 
-  const db = await getDb();
-  const userCount = Object.keys(db.sessions || {}).length;
+bot.action('admin_main', async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
   await ctx.answerCbQuery();
-  await ctx.editMessageText(`👥 **Total Active Users**: ${userCount} ယောက်\n\n/admin ကိုနှိပ်၍ Admin Panel သို့ ပြန်သွားနိုင်ပါသည်။`, { parse_mode: 'Markdown' });
+  await showAdminMenu(ctx);
 });
 
-bot.action('admin_stats', async (ctx) => {
+bot.action('admin_dashboard', async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return ctx.answerCbQuery('You are not authorized.', { show_alert: true });
-  }
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
   const db = await getDb();
+  const totalUsers = Object.keys(db.users || {}).length;
+  const activeSessions = Object.keys(db.sessions || {}).length;
   const usage = db.stats?.commandUsage || {};
   
-  let msg = '📊 **Command Usage Statistics**\n\n';
-  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 15);
+  let msg = `📊 **Admin Dashboard**\n\n`;
+  msg += `👥 **Total Users**: ${totalUsers}\n`;
+  msg += `🟢 **Active Sessions**: ${activeSessions}\n\n`;
+  msg += `📈 **Top Command Usage**:\n`;
   
+  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 10);
   if (sortedUsage.length === 0) {
-    msg += 'No commands recorded yet.';
+    msg += 'No commands recorded yet.\n';
   } else {
     for (const [cmd, count] of sortedUsage) {
       msg += `▪️ \`${cmd}\`: ${count} times\n`;
     }
   }
 
-  msg += '\n/admin ကိုနှိပ်၍ Admin Panel သို့ ပြန်သွားနိုင်ပါသည်။';
-
   await ctx.answerCbQuery();
-  await ctx.editMessageText(msg, { parse_mode: 'Markdown' });
+  await ctx.editMessageText(msg, { 
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [[{ text: '« Back to Admin', callback_data: 'admin_main' }]]
+    }
+  });
 });
 
-bot.command('users', async (ctx) => {
+bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+
+  const page = parseInt(ctx.match[1]);
+  const perPage = 10;
+  const db = await getDb();
+  const usersArray = Object.values(db.users || {}) as any[];
+  
+  const totalPages = Math.ceil(usersArray.length / perPage);
+  const start = page * perPage;
+  const usersSlice = usersArray.slice(start, start + perPage);
+
+  let msg = `👥 **User Management (Page ${page + 1}/${totalPages || 1})**\n\n`;
+  if (usersSlice.length === 0) {
+    msg += "No users found.";
   }
+
+  const inline_keyboard: any[][] = [];
+
+  for (const user of usersSlice) {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
+    const status = user.banned ? '🔴 Banned' : '🟢 Active';
+    const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
+    const actionData = `admin_toggle_ban_${user.id}_${page}`;
+    inline_keyboard.push([{ text: actionText, callback_data: actionData }]);
+    msg += `ID: \`${user.id}\` | ${status}\n👤 ${name} ${user.username ? `(@${user.username})` : ''}\n\n`;
+  }
+
+  const navRow = [];
+  if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
+  if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
+  if (navRow.length > 0) inline_keyboard.push(navRow);
+  
+  inline_keyboard.push([{ text: '« Back to Admin', callback_data: 'admin_main' }]);
+
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
+});
+
+bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+
+  const userId = ctx.match[1];
+  const page = ctx.match[2];
   
   const db = await getDb();
-  const userCount = Object.keys(db.sessions || {}).length;
-  await ctx.reply(`📊 လက်ရှိ Bot ကို အသုံးပြုနေသော User အရေအတွက်: ${userCount} ယောက်`);
+  if (db.users && db.users[userId]) {
+    db.users[userId].banned = !db.users[userId].banned;
+    await saveDb(db);
+    await ctx.answerCbQuery(`User ban status updated to: ${db.users[userId].banned ? 'Banned' : 'Active'}`, { show_alert: true });
+  } else {
+    await ctx.answerCbQuery('User not found!', { show_alert: true });
+  }
+
+  // Refresh the page
+  ctx.match[1] = page; 
+  // We can just call the action handler again but simpler to modify state and edit manually
+  const perPage = 10;
+  const usersArray = Object.values(db.users || {}) as any[];
+  const totalPages = Math.ceil(usersArray.length / perPage);
+  const start = parseInt(page) * perPage;
+  const usersSlice = usersArray.slice(start, start + perPage);
+
+  let msg = `👥 **User Management (Page ${parseInt(page) + 1}/${totalPages || 1})**\n\n`;
+  const inline_keyboard: any[][] = [];
+
+  for (const user of usersSlice) {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
+    const status = user.banned ? '🔴 Banned' : '🟢 Active';
+    const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
+    const actionData = `admin_toggle_ban_${user.id}_${page}`;
+    inline_keyboard.push([{ text: actionText, callback_data: actionData }]);
+    msg += `ID: \`${user.id}\` | ${status}\n👤 ${name} ${user.username ? `(@${user.username})` : ''}\n\n`;
+  }
+
+  const navRow = [];
+  if (parseInt(page) > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${parseInt(page) - 1}` });
+  if (parseInt(page) < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${parseInt(page) + 1}` });
+  if (navRow.length > 0) inline_keyboard.push(navRow);
+  inline_keyboard.push([{ text: '« Back to Admin', callback_data: 'admin_main' }]);
+
+  await ctx.editMessageText(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
+});
+
+bot.action('admin_broadcast_info', async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
+
+  const msg = `📢 **Broadcast Mode**\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n\`/broadcast သင်ပို့လိုသောစာများ\`\n\nHTML formatting လည်း သုံးလို့ရပါတယ်။`;
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(msg, { 
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [[{ text: '« Back to Admin', callback_data: 'admin_main' }]]
+    }
+  });
+});
+
+bot.command('broadcast', async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID;
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return;
+
+  const text = ctx.message.text;
+  const match = text.match(/^\/broadcast\s+([\s\S]+)$/);
+  if (!match) {
+    return ctx.reply('အသုံးပြုပုံ: `/broadcast သင်ပို့လိုသောစာများ`', { parse_mode: 'Markdown' });
+  }
+
+  const message = match[1];
+  const db = await getDb();
+  const users = Object.keys(db.users || {});
+  
+  let successCount = 0;
+  let failCount = 0;
+
+  const sendingMsg = await ctx.reply('⏳ ပေးပို့နေပါသည်... ခဏစောင့်ပါ။');
+
+  for (const userId of users) {
+    if (db.users[userId] && db.users[userId].banned) continue;
+    try {
+      await bot.telegram.sendMessage(userId, message, { parse_mode: 'HTML' });
+      successCount++;
+    } catch (e) {
+      failCount++;
+    }
+  }
+
+  await ctx.telegram.editMessageText(
+    ctx.chat.id, 
+    sendingMsg.message_id, 
+    undefined, 
+    `✅ Broadcast ပြီးဆုံးပါပြီ။\n\nအောင်မြင်: ${successCount} ယောက်\nမအောင်မြင်: ${failCount} ယောက်`
+  );
 });
 
 export function startBot() {
@@ -1025,11 +1197,66 @@ app.get('/api/stats', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   const db = await getDb();
-  const totalUsers = Object.keys(db.sessions || {}).length;
+  const totalUsers = Object.keys(db.users || {}).length;
+  const activeSessions = Object.keys(db.sessions || {}).length;
   res.json({
     totalUsers,
+    activeSessions,
     commandUsage: db.stats?.commandUsage || {}
   });
+});
+
+app.get('/api/users', async (req, res) => {
+  const { password } = req.query;
+  if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const db = await getDb();
+  const usersArray = Object.values(db.users || {});
+  res.json({ users: usersArray });
+});
+
+app.post('/api/ban', async (req, res) => {
+  const { password, userId, action } = req.body;
+  if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const db = await getDb();
+  if (!db.users) db.users = {};
+  if (db.users[userId]) {
+    db.users[userId].banned = action === 'ban';
+    await saveDb(db);
+    res.json({ success: true, banned: db.users[userId].banned });
+  } else {
+    res.status(404).json({ error: 'User not found' });
+  }
+});
+
+app.post('/api/broadcast', async (req, res) => {
+  const { password, message } = req.body;
+  if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!message || message.trim() === '') {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+  
+  const db = await getDb();
+  const users = Object.keys(db.users || {});
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const userId of users) {
+    if (db.users[userId] && db.users[userId].banned) continue;
+    try {
+      await bot.telegram.sendMessage(userId, message, { parse_mode: 'HTML' });
+      successCount++;
+    } catch (e) {
+      failCount++;
+    }
+  }
+  
+  res.json({ success: true, successCount, failCount });
 });
 
 const PORT = process.env.PORT || 3000;
