@@ -1079,10 +1079,11 @@ bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   const inline_keyboard: any[][] = [];
 
   for (const user of usersSlice) {
+    if (!user || typeof user !== 'object') continue;
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
     // Safe HTML escape for name and username
-    const safeName = name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeUsername = user.username ? user.username.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeUsername = user.username ? user.username.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
     const status = user.banned ? '🔴 Banned' : '🟢 Active';
     const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
@@ -1136,9 +1137,10 @@ bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   const inline_keyboard: any[][] = [];
 
   for (const user of usersSlice) {
+    if (!user || typeof user !== 'object') continue;
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown';
-    const safeName = name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeUsername = user.username ? user.username.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeUsername = user.username ? user.username.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
     const status = user.banned ? '🔴 Banned' : '🟢 Active';
     const actionText = user.banned ? `Unban ${name.slice(0,10)}` : `Ban ${name.slice(0,10)}`;
