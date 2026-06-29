@@ -8,7 +8,8 @@ import https from 'https';
 export const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8976003318:AAHZQ0sSiw4IlkRRGRsfFNe7asqs5ZGIbpk';
 export const bot = new Telegraf<any>(BOT_TOKEN);
 
-const DB_FILE = path.join(process.cwd(), 'bot_db.json');
+const DB_PATH_ENV = process.env.DB_PATH || process.env.RAILWAY_VOLUME_MOUNT_PATH;
+const DB_FILE = DB_PATH_ENV ? path.join(DB_PATH_ENV, 'bot_db.json') : path.join(process.cwd(), 'bot_db.json');
 
 // Helper to generate node checksum
 function generateChecksumNode(userId: string | null, body: string): string {
@@ -55,10 +56,24 @@ function checkGameCooldown(userId: number): number {
   const lastPlayed = gameCooldowns.get(userId);
   if (!lastPlayed) return 0;
   const diff = Date.now() - lastPlayed;
-  if (diff < 15000) {
-    return Math.ceil((15000 - diff) / 1000);
+  if (diff < 5000) {
+    return Math.ceil((5000 - diff) / 1000);
   }
   return 0;
+}
+
+async function handleCooldownCountdown(ctx: any, userId: number): Promise<void> {
+  let waitTime = checkGameCooldown(userId);
+  if (waitTime <= 0) return;
+  const cdMsg = await ctx.reply(`⏳ ${waitTime}`);
+  while (waitTime > 0) {
+    await new Promise(r => setTimeout(r, 1000));
+    waitTime--;
+    if (waitTime > 0) {
+      await ctx.telegram.editMessageText(ctx.chat.id, cdMsg.message_id, undefined, `⏳ ${waitTime}`).catch(()=>{});
+    }
+  }
+  await ctx.telegram.deleteMessage(ctx.chat.id, cdMsg.message_id).catch(()=>{});
 }
 
 function setGameCooldown(userId: number) {
@@ -434,10 +449,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitTime = checkGameCooldown(ctx.from.id);
-  if (waitTime > 0) {
-    await new Promise(r => setTimeout(r, waitTime * 1000));
-  }
+  await handleCooldownCountdown(ctx, ctx.from.id);
   
   const waitMsg = await ctx.reply("⏳ Toh Toh ဂိမ်း ဆော့နေပါတယ်...");
 
@@ -499,10 +511,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitTime = checkGameCooldown(ctx.from.id);
-  if (waitTime > 0) {
-    await new Promise(r => setTimeout(r, waitTime * 1000));
-  }
+  await handleCooldownCountdown(ctx, ctx.from.id);
   
   const waitMsg = await ctx.reply("⏳ ရွှေလယ်တော ဂိမ်း ဆော့နေပါတယ်...");
 
