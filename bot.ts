@@ -49,6 +49,22 @@ async function clearSession(tgUserId: number) {
   await saveDb(db);
 }
 
+const gameCooldowns = new Map<number, number>();
+
+function checkGameCooldown(userId: number): number {
+  const lastPlayed = gameCooldowns.get(userId);
+  if (!lastPlayed) return 0;
+  const diff = Date.now() - lastPlayed;
+  if (diff < 15000) {
+    return Math.ceil((15000 - diff) / 1000);
+  }
+  return 0;
+}
+
+function setGameCooldown(userId: number) {
+  gameCooldowns.set(userId, Date.now());
+}
+
 const COMMON_HEADERS = {
   "accept": "application/json, text/plain, */*",
   "user-agent": "MyTM/4.13.0/Android/30",
@@ -418,6 +434,11 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
+  const waitTime = checkGameCooldown(ctx.from.id);
+  if (waitTime > 0) {
+    await new Promise(r => setTimeout(r, waitTime * 1000));
+  }
+  
   const waitMsg = await ctx.reply("⏳ Toh Toh ဂိမ်း ဆော့နေပါတယ်...");
 
   const dashRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
@@ -447,6 +468,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   const bodyObj = { isCompleted: 1, currentPlayLevel: maxLevel, chosenPrize: "Instant" };
   
   const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/tohtohunited/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  setGameCooldown(ctx.from.id);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -476,6 +498,11 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
 bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  
+  const waitTime = checkGameCooldown(ctx.from.id);
+  if (waitTime > 0) {
+    await new Promise(r => setTimeout(r, waitTime * 1000));
+  }
   
   const waitMsg = await ctx.reply("⏳ ရွှေလယ်တော ဂိမ်း ဆော့နေပါတယ်...");
 
@@ -507,8 +534,13 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     }
   }
 
-  const bodyObj = { score: maxScore };
+  // Randomize score slightly below maxScore to avoid suspicion (e.g. 160-165)
+  const minScore = Math.max(0, maxScore - 5);
+  const randomScore = Math.floor(Math.random() * (maxScore - minScore + 1)) + minScore;
+
+  const bodyObj = { score: randomScore };
   const res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/goldenfarm/draw?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  setGameCooldown(ctx.from.id);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
