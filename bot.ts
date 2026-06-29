@@ -4,8 +4,6 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import https from 'https';
-import express from 'express';
-import cors from 'cors';
 
 export const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8976003318:AAHZQ0sSiw4IlkRRGRsfFNe7asqs5ZGIbpk';
 export const bot = new Telegraf<any>(BOT_TOKEN);
@@ -25,12 +23,9 @@ function generateChecksumNode(userId: string | null, body: string): string {
 async function getDb() {
   try {
     const data = await fs.readFile(DB_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
-    if (!parsed.sessions) parsed.sessions = {};
-    if (!parsed.stats) parsed.stats = { totalUsers: 0, commandUsage: {} };
-    return parsed;
+    return JSON.parse(data);
   } catch (e) {
-    return { sessions: {}, stats: { totalUsers: 0, commandUsage: {} } };
+    return { sessions: {} };
   }
 }
 
@@ -52,22 +47,6 @@ async function saveSession(tgUserId: number, sessionData: any) {
 async function clearSession(tgUserId: number) {
   const db = await getDb();
   delete db.sessions[tgUserId.toString()];
-  await saveDb(db);
-}
-
-async function recordCommand(commandName: string) {
-  const db = await getDb();
-  if (!db.stats) db.stats = { totalUsers: 0, commandUsage: {} };
-  
-  // Refresh total users dynamically
-  db.stats.totalUsers = Object.keys(db.sessions || {}).length;
-  
-  if (!db.stats.commandUsage[commandName]) {
-    db.stats.commandUsage[commandName] = 1;
-  } else {
-    db.stats.commandUsage[commandName]++;
-  }
-  
   await saveDb(db);
 }
 
@@ -379,27 +358,6 @@ function getMainKeyboard(isLoggedIn: boolean) {
 const stage = new Scenes.Stage([authWizard]);
 bot.use(session());
 bot.use(stage.middleware());
-
-bot.use(async (ctx, next) => {
-  if (ctx.message && 'text' in ctx.message) {
-    const text = ctx.message.text;
-    if (text.startsWith('/')) {
-      const cmd = text.split(' ')[0].toLowerCase();
-      recordCommand(cmd).catch(console.error);
-    } else {
-      const keywords = ['အကောင့်ဝင်ရန်', 'လက်ကျန်', 'ပွိုင့်', 'tohtoh', 'ရွှေလယ်တော', 'claim'];
-      const matched = keywords.find(k => text.toLowerCase().includes(k));
-      if (matched) {
-         recordCommand(`menu_${matched}`).catch(console.error);
-      }
-    }
-  } else if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
-    const data = ctx.callbackQuery.data;
-    const actionBase = data.split('_')[0];
-    recordCommand(`action_${actionBase}`).catch(console.error);
-  }
-  return next();
-});
 
 bot.start(async (ctx) => {
   const sess = await getSession(ctx.from.id);
@@ -930,61 +888,6 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 });
 
-bot.command('admin', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return;
-  }
-  
-  await ctx.reply('🛠 **Admin Panel**\n\nအောက်ပါ Menu များမှ ရွေးချယ်ပါ:', {
-    parse_mode: 'Markdown',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '👥 Total Users', callback_data: 'admin_users' }],
-        [{ text: '📊 Command Stats', callback_data: 'admin_stats' }]
-      ]
-    }
-  });
-});
-
-bot.action('admin_users', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return ctx.answerCbQuery('You are not authorized.', { show_alert: true });
-  }
-
-  const db = await getDb();
-  const userCount = Object.keys(db.sessions || {}).length;
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(`👥 **Total Active Users**: ${userCount} ယောက်\n\n/admin ကိုနှိပ်၍ Admin Panel သို့ ပြန်သွားနိုင်ပါသည်။`, { parse_mode: 'Markdown' });
-});
-
-bot.action('admin_stats', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return ctx.answerCbQuery('You are not authorized.', { show_alert: true });
-  }
-
-  const db = await getDb();
-  const usage = db.stats?.commandUsage || {};
-  
-  let msg = '📊 **Command Usage Statistics**\n\n';
-  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 15);
-  
-  if (sortedUsage.length === 0) {
-    msg += 'No commands recorded yet.';
-  } else {
-    for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ \`${cmd}\`: ${count} times\n`;
-    }
-  }
-
-  msg += '\n/admin ကိုနှိပ်၍ Admin Panel သို့ ပြန်သွားနိုင်ပါသည်။';
-
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(msg, { parse_mode: 'Markdown' });
-});
-
 bot.command('users', async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
@@ -1005,28 +908,6 @@ export function startBot() {
       console.log("Retrying bot launch in 5 seconds...");
       setTimeout(startBot, 5000);
     }
-  });
-
-  const app = express();
-  app.use(express.json());
-  app.use(cors());
-
-  app.get('/api/stats', async (req, res) => {
-    const { password } = req.query;
-    if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const db = await getDb();
-    const totalUsers = Object.keys(db.sessions || {}).length;
-    res.json({
-      totalUsers,
-      commandUsage: db.stats?.commandUsage || {}
-    });
-  });
-
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`Admin API server listening on port ${PORT}`);
   });
 }
 
