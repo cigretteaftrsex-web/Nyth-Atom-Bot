@@ -118,12 +118,22 @@ async function atomApiGet(endpoint: string, headers: any = {}, retries = 3) {
 function isTokenExpired(res: any): boolean {
   if (!res) return false;
   if (res === 401 || res.status === 401 || res.statusCode === 401) return true;
-  const str = JSON.stringify(res).toLowerCase();
-  return str.includes('unauthenticated') || 
-         str.includes('unauthorized') || 
-         str.includes('token expired') || 
-         str.includes('invalid token') ||
-         str.includes('9001');
+  if (res.response && res.response.status === 401) return true;
+  
+  if (typeof res === 'string') {
+     const str = res.toLowerCase();
+     return str.includes('unauthenticated') || str.includes('unauthorized') || str.includes('token expired') || str.includes('invalid token') || str.includes('9001');
+  }
+
+  const errCode = String(res.errors?.message?.code || res.errors?.code || res.statusCode || "");
+  const errTitle = String(res.errors?.message?.title || res.errors?.title || "").toLowerCase();
+  const errMsg = String(res.errors?.message?.message || res.message || res.errors?.message || "").toLowerCase();
+     
+  if (errCode === "9001" || errCode === "401") return true;
+  if (errTitle.includes('unauthenticated') || errTitle.includes('unauthorized') || errTitle.includes('invalid token') || errTitle.includes('token expired')) return true;
+  if (errMsg.includes('unauthenticated') || errMsg.includes('unauthorized') || errMsg.includes('invalid token') || errMsg.includes('token expired') || errMsg.includes('9001')) return true;
+
+  return false;
 }
 
 async function performTokenRefresh(tgUserId: number, sess: any): Promise<any> {
@@ -743,8 +753,8 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  const pointText = pointsToClaim ? String(pointsToClaim) : "Daily Point";
-  await ctx.reply(`ရယူနိုင်သော Daily Point - ${pointText}`, Markup.inlineKeyboard([
+  const pointText = pointsToClaim ? `${pointsToClaim} မှတ်` : "Daily Point";
+  await ctx.reply(`ရယူနိုင်သော Daily Point ပမာဏ - ${pointText}`, Markup.inlineKeyboard([
       [Markup.button.callback('ရယူမည်', `claim_point_${claimId}`)]
   ]));
 });
