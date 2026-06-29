@@ -83,6 +83,9 @@ async function recordUser(from: any) {
 }
 
 async function isUserBanned(tgUserId: number): Promise<boolean> {
+  if (process.env.ADMIN_USER_ID && tgUserId.toString() === process.env.ADMIN_USER_ID.toString()) {
+    return false;
+  }
   const db = await getDb();
   if (!db.users) return false;
   const user = db.users[tgUserId.toString()];
@@ -1085,6 +1088,10 @@ bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   const userId = ctx.match[1];
   const page = ctx.match[2];
   
+  if (userId === adminId.toString()) {
+    return ctx.answerCbQuery('⚠️ Admin အကောင့်ကို Ban ၍ မရပါ။', { show_alert: true });
+  }
+  
   const db = await getDb();
   if (db.users && db.users[userId]) {
     db.users[userId].banned = !db.users[userId].banned;
@@ -1220,6 +1227,9 @@ app.post('/api/ban', async (req, res) => {
   const { password, userId, action } = req.body;
   if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (process.env.ADMIN_USER_ID && userId.toString() === process.env.ADMIN_USER_ID.toString()) {
+    return res.status(400).json({ error: 'Cannot ban admin user' });
   }
   const db = await getDb();
   if (!db.users) db.users = {};
