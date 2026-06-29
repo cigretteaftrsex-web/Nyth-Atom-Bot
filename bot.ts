@@ -217,14 +217,25 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
   return res || { _authFailed: true };
 }
 
+const isMenuCommand = (text: string) => {
+  const menu = ['🔑 အကောင့်ဝင်ရန်', '🔄 အကောင့်ထွက်ရန်', '💰 လက်ကျန်ငွေစစ်ရန်', '📊 ပွိုင့်စစ်ရန်', '🎟️ TohToh ကူပွန်', '🎮 TohToh ဆော့ရန်', '🎟️ TohToh Live ဝယ်ယူရန်', '🌾 ရွှေလယ်တော ကူပွန်', '🐔 ရွှေလယ်တော ဆော့ရန်', '🌾 ရွှေလယ်တော Live ဝယ်ယူရန်', '🎁 Daily Point Claim', '/start', '/cancel'];
+  return menu.includes(text);
+};
+
 const authWizard = new Scenes.WizardScene<any>(
   'AUTH_WIZARD',
   async (ctx) => {
-    await ctx.reply("📲 ဖုန်းနံပါတ်လေး ရိုက်ထည့်ပေးပါဗျ။ (ဥပမာ - 097xxxxxxx)");
+    await ctx.reply("📲 ဖုန်းနံပါတ်လေး ရိုက်ထည့်ပေးပါဗျ။ (ဥပမာ - 097xxxxxxx)\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)");
     return ctx.wizard.next();
   },
   async (ctx) => {
     if ('text' in ctx.message) {
+      if (isMenuCommand(ctx.message.text)) {
+        await ctx.scene.leave();
+        await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
+        return;
+      }
+      
       let phone = ctx.message.text.replace(/\D/g, '');
       if (phone.startsWith("95")) phone = phone.slice(2);
       if (phone.startsWith("09")) phone = phone.slice(1);
@@ -252,11 +263,18 @@ const authWizard = new Scenes.WizardScene<any>(
   },
   async (ctx) => {
     if ('text' in ctx.message) {
-      const otp = ctx.message.text.replace(/\D/g, '');
-      if (otp.length !== 6) {
-        await ctx.reply("❌ OTP ဂဏန်း ၆ လုံး ပြည့်အောင် ရိုက်ထည့်ပေးပါဗျ။");
+      if (isMenuCommand(ctx.message.text)) {
+        await ctx.scene.leave();
+        await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
         return;
       }
+
+      const otp = ctx.message.text.replace(/\D/g, '');
+      if (otp.length !== 6) {
+        await ctx.reply("❌ OTP ဂဏန်း ၆ လုံး ပြည့်အောင် ရိုက်ထည့်ပေးပါဗျ။ (မလုပ်လိုပါက /cancel ဟုရိုက်၍ ထွက်နိုင်ပါသည်)");
+        return;
+      }
+
       
       const msg = await ctx.reply("⏳ OTP မှန်မမှန် စစ်ဆေးနေတယ်ဗျ...");
       
@@ -777,17 +795,18 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   if (/^\d+$/.test(claimId)) parsedId = Number(claimId);
   const bodyObj = { id: parsedId };
   
-  let claimRes = await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
+  // Try v1 first as it is more common for ATOM daily point claims
+  let claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, bodyObj);
   
   if (claimRes?._authFailed) {
       return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
   }
 
-  // Fallback to v1 if v2 claim fails
+  // Fallback to v2 if v1 claim fails or not found
   if (!claimRes || claimRes.status !== 'success') {
-      const v1Res = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
-      if (v1Res && (v1Res.status === 'success' || !claimRes)) {
-         claimRes = v1Res;
+      const v2Res = await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, bodyObj);
+      if (v2Res && (v2Res.status === 'success' || !claimRes)) {
+         claimRes = v2Res;
       }
   }
 
@@ -795,7 +814,13 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
     const msg = claimRes.data?.attribute?.message || claimRes.message || "အောင်မြင်ပါတယ်ဗျ။";
     await ctx.editMessageText(`🎉 နေ့စဉ် Point ရယူခြင်း အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
-    let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title || "အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။";
+    let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title;
+    
+    if (!errMsg) {
+        const rawErr = claimRes ? JSON.stringify(claimRes).substring(0, 150) : "null";
+        errMsg = `အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ (Dev Info: ${rawErr})`;
+    }
+
     if (claimRes?.errors?.message?.title && typeof claimRes.errors.message.title === 'string' && !claimRes.errors.message.title.includes("Failed") && !claimRes.errors.message.title.includes("မအောင်မြင်ပါ")) {
         errMsg = claimRes.errors.message.title + " - " + errMsg;
     }
