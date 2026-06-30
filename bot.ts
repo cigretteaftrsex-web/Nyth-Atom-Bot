@@ -1211,10 +1211,8 @@ bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? 
 
   const inline_keyboard: any[][] = [];
   
-  if (userId !== adminId.toString()) {
-    const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
-    inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
-  }
+  const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
+  inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
   
   inline_keyboard.push([{ text: '« Back to Users List', callback_data: `admin_users_list_${page}` }]);
   inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
@@ -1236,7 +1234,7 @@ bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [
   if (db.users && db.users[userId]) {
     const isCurrentlyBanned = db.users[userId].banned;
     
-    if (userId === adminId.toString()) {
+    if (userId === adminId.toString() && !isCurrentlyBanned) {
       return ctx.answerCbQuery('⚠️ Admin အကောင့်ကို Ban ၍ မရပါ။', { show_alert: true }).catch(() => {});
     }
     
