@@ -1080,7 +1080,7 @@ bot.action('admin_dashboard', async (ctx) => {
   }).catch(console.error);
 });
 
-bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
+bot.action(/admin_users_list_(.+)/, async (ctx) => {
   try {
     const page = parseInt(ctx.match[1]) || 0;
     console.log("admin_users_list triggered with page", page);
@@ -1148,7 +1148,7 @@ bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   }
 });
 
-bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
+bot.action(/admin_toggle_ban_(.+)_(.+)/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
