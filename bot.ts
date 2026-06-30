@@ -1124,9 +1124,11 @@ bot.action('admin_stats', async (ctx) => {
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
 });
 
-bot.action(/admin_users_list_(.+)/, async (ctx) => {
+bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [value] as any : null, async (ctx) => {
   try {
-    const page = parseInt(ctx.match[1]) || 0;
+    const dataStr = (ctx.callbackQuery as any).data;
+    const parts = dataStr.split('_');
+    const page = parseInt(parts[3]) || 0;
     const adminId = process.env.ADMIN_USER_ID;
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     
@@ -1179,12 +1181,14 @@ bot.action(/admin_users_list_(.+)/, async (ctx) => {
   }
 });
 
-bot.action(/admin_user_detail_(.+)_(.+)/, async (ctx) => {
+bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? [value] as any : null, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
-  const userId = ctx.match[1];
-  const page = ctx.match[2];
+  const dataStr = (ctx.callbackQuery as any).data;
+  const parts = dataStr.split('_');
+  const userId = parts[3];
+  const page = parts[4] || '0';
   
   const db = await getDb();
   const user = db.users?.[userId];
@@ -1219,12 +1223,14 @@ bot.action(/admin_user_detail_(.+)_(.+)/, async (ctx) => {
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
 });
 
-bot.action(/admin_toggle_ban_(.+)_(.+)/, async (ctx) => {
+bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [value] as any : null, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
-  const userId = ctx.match[1];
-  const page = ctx.match[2];
+  const dataStr = (ctx.callbackQuery as any).data;
+  const parts = dataStr.split('_');
+  const userId = parts[3];
+  const page = parts[4] || '0';
   
   const db = await getDb();
   if (db.users && db.users[userId]) {
@@ -1239,9 +1245,6 @@ bot.action(/admin_toggle_ban_(.+)_(.+)/, async (ctx) => {
     
     await ctx.answerCbQuery(`User has been ${db.users[userId].banned ? 'Banned' : 'Unbanned'}.`, { show_alert: true }).catch(() => {});
     
-    // Simulate clicking the detail button to refresh the view
-    ctx.match[1] = userId;
-    ctx.match[2] = page;
     // We can't directly call the handler, but we can just re-render the detail view
     const user = db.users[userId];
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
