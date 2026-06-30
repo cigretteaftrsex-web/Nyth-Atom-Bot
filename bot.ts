@@ -1025,12 +1025,33 @@ bot.command('admin', async (ctx) => {
 });
 
 async function showAdminMenu(ctx: any) {
-  const msg = '🛠 <b>Nyth Admin Panel</b>\n\nအောက်ပါ Menu များမှ ရွေးချယ်ပါ:';
+  const db = await getDb();
+  const usersArray = Object.entries(db.users || {}).map(([id, u]: any) => ({ id, ...u }));
+  const totalUsers = usersArray.length;
+  const activeSessions = Object.keys(db.sessions || {}).length;
+  const bannedUsers = usersArray.filter(u => u.banned).length;
+  const usage = db.stats?.commandUsage || {};
+  
+  let msg = `🛠 <b>Nyth Admin Dashboard</b>\n\n`;
+  msg += `👥 <b>Total Users</b>: ${totalUsers}\n`;
+  msg += `🟢 <b>Active Sessions</b>: ${activeSessions}\n`;
+  msg += `🔴 <b>Banned Users</b>: ${bannedUsers}\n\n`;
+  msg += `📈 <b>Top Command Usage</b>:\n`;
+  
+  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
+  if (sortedUsage.length === 0) {
+    msg += 'No commands recorded yet.\n';
+  } else {
+    for (const [cmd, count] of sortedUsage) {
+      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
+    }
+  }
+
   const keyboard = {
     inline_keyboard: [
-      [{ text: '📊 Dashboard (Stats)', callback_data: 'admin_dashboard' }],
-      [{ text: '👥 User Management', callback_data: 'admin_users_list_0' }],
-      [{ text: '📢 Broadcast', callback_data: 'admin_broadcast_info' }]
+      [{ text: '👥 Manage Users', callback_data: 'admin_users_list_0' }],
+      [{ text: '📢 Broadcast', callback_data: 'admin_broadcast_info' }],
+      [{ text: '🔄 Refresh', callback_data: 'admin_main' }]
     ]
   };
   
@@ -1048,41 +1069,10 @@ bot.action('admin_main', async (ctx) => {
   await showAdminMenu(ctx);
 });
 
-bot.action('admin_dashboard', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
-
-  const db = await getDb();
-  const totalUsers = Object.keys(db.users || {}).length;
-  const activeSessions = Object.keys(db.sessions || {}).length;
-  const usage = db.stats?.commandUsage || {};
-  
-  let msg = `📊 <b>Admin Dashboard</b>\n\n`;
-  msg += `👥 <b>Total Users</b>: ${totalUsers}\n`;
-  msg += `🟢 <b>Active Sessions</b>: ${activeSessions}\n\n`;
-  msg += `📈 <b>Top Command Usage</b>:\n`;
-  
-  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 10);
-  if (sortedUsage.length === 0) {
-    msg += 'No commands recorded yet.\n';
-  } else {
-    for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
-    }
-  }
-
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(msg, { 
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[{ text: '« Back to Admin', callback_data: 'admin_main' }]]
-    }
-  }).catch(console.error);
-});
-
-bot.action(/admin_users_list_(.+)/, async (ctx) => {
+bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [value] as any : null, async (ctx) => {
   try {
-    const page = parseInt(ctx.match[1]) || 0;
+    const dataStr = (ctx.callbackQuery as any).data;
+    const page = parseInt(dataStr.split('_')[3]) || 0;
     console.log("admin_users_list triggered with page", page);
     const adminId = process.env.ADMIN_USER_ID;
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
@@ -1148,12 +1138,14 @@ bot.action(/admin_users_list_(.+)/, async (ctx) => {
   }
 });
 
-bot.action(/admin_toggle_ban_(.+)_(.+)/, async (ctx) => {
+bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [value] as any : null, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID;
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
-  const userId = ctx.match[1];
-  const page = ctx.match[2];
+  const dataStr = (ctx.callbackQuery as any).data;
+  const parts = dataStr.split('_');
+  const userId = parts[3];
+  const page = parts[4];
   
   const db = await getDb();
   if (db.users && db.users[userId]) {
@@ -1171,7 +1163,6 @@ bot.action(/admin_toggle_ban_(.+)_(.+)/, async (ctx) => {
   }
 
   // Refresh the page
-  ctx.match[1] = page; 
   const perPage = 10;
   const usersArray = Object.entries(db.users || {}).map(([idStr, u]: [string, any]) => ({
     id: u?.id || idStr,
