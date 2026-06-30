@@ -909,9 +909,19 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   let claimId = null;
   let pointsToClaim: string | null = null;
   
-  if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
-    const items = listRes.data.attribute.items;
-    
+  let items = listRes?.data?.attribute?.items || listRes?.data?.items || listRes?.items;
+  
+  if (!items && listRes?.data) {
+     // try to find any array in the data object
+     for (const key in listRes.data) {
+         if (Array.isArray(listRes.data[key])) {
+             items = listRes.data[key];
+             break;
+         }
+     }
+  }
+
+  if (listRes && listRes.status === 'success' && items && Array.isArray(items)) {
     // Broadest filter to catch the claimable item correctly
     const claimableItem = items.find((item: any) => {
       // 1. Explicitly claimable signals
@@ -950,6 +960,19 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   if (!claimId) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    
+    // Add debug info to help fix the API
+    let dbg = '';
+    try {
+      dbg = JSON.stringify(listRes, null, 2);
+      // Remove any sensitive tokens just in case
+      dbg = dbg.replace(/[a-zA-Z0-9]{30,}/g, '***');
+    } catch (e) {
+      dbg = String(listRes);
+    }
+    
+    await ctx.reply(`Debug API Response:\n<code>${dbg.substring(0, 3000)}</code>`, { parse_mode: 'HTML' });
+    
     return ctx.reply("✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ (သို့) ယူရန်မရှိသေးပါ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
   }
   
