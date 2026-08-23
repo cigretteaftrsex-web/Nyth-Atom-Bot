@@ -1131,33 +1131,44 @@ bot.action('admin_stats', async (ctx) => {
 
 bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   try {
-    const page = parseInt(ctx.match[1]) || 0;
+    const match = ('data' in ctx.callbackQuery) ? ctx.callbackQuery.data.match(/^admin_users_list_(\d+)$/) : null;
+    const page = match ? parseInt(match[1], 10) : 0;
+    
     const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     
     const perPage = 10;
     const db = await getDb();
     
-    const usersArray = Object.entries(db.users || {}).map(([idStr, u]: [string, any]) => ({
-      id: u?.id || idStr,
-      first_name: u?.first_name || 'Unknown',
-      last_name: u?.last_name || '',
-      username: u?.username || '',
-      banned: !!u?.banned
-    }));
+    const usersArray = Object.entries(db.users || {})
+      .map(([idStr, u]: [string, any]) => ({
+        id: u?.id || idStr,
+        first_name: u?.first_name || 'Unknown',
+        last_name: u?.last_name || '',
+        username: u?.username || '',
+        banned: !!u?.banned,
+        last_seen: u?.last_seen || 0
+      }))
+      .sort((a, b) => {
+        const dateA = new Date(a.last_seen).getTime() || 0;
+        const dateB = new Date(b.last_seen).getTime() || 0;
+        return dateB - dateA;
+      });
     
     const totalPages = Math.ceil(usersArray.length / perPage);
     const start = page * perPage;
     const usersSlice = usersArray.slice(start, start + perPage);
 
-    let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\nအောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:`;
+    let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\n`;
+    msg += `Total Users: ${usersArray.length}\n`;
+    msg += `အောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:\n`;
     
     const inline_keyboard: any[][] = [];
 
     for (const user of usersSlice) {
-      const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20);
+      const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20) || 'Unknown';
       const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const statusIcon = user.banned ? '🔴' : '👤';
+      const statusIcon = user.banned ? '🔴' : '🟢';
       
       inline_keyboard.push([{ 
         text: `${statusIcon} ${safeName}`, 
@@ -1188,8 +1199,9 @@ bot.action(/^admin_user_detail_(\d+)_(\d+)$/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
-  const userId = ctx.match[1];
-  const page = ctx.match[2] || '0';
+  const match = ('data' in ctx.callbackQuery) ? ctx.callbackQuery.data.match(/^admin_user_detail_(\d+)_(\d+)$/) : null;
+  const userId = match ? match[1] : (ctx.match ? ctx.match[1] : '');
+  const page = match ? (match[2] || '0') : (ctx.match ? ctx.match[2] || '0' : '0');
   
   const db = await getDb();
   const user = db.users?.[userId];
