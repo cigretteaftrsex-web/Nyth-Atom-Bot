@@ -21,7 +21,7 @@ import https from 'https';
 import express from 'express';
 import cors from 'cors';
 
-export const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8976003318:AAHZQ0sSiw4IlkRRGRsfFNe7asqs5ZGIbpk';
+export const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8999431060:AAH9vSbn2xz-fRhlNc6CJ96_a8oT5-OpRw0';
 export const bot = new Telegraf<any>(BOT_TOKEN);
 
 const DB_PATH_ENV = process.env.DB_PATH || process.env.RAILWAY_VOLUME_MOUNT_PATH;
