@@ -892,8 +892,11 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
   
-  // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
+  // Simulate visiting the Point Dashboard and Campaign list first. This initializes the daily point availability on ATOM's servers.
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/campaign-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
   let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
@@ -913,37 +916,38 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   if (listRes && listRes.status === 'success' && listRes.data?.attribute?.items) {
     const items = listRes.data.attribute.items;
     
-    // Broadest filter to catch the claimable item correctly
+    // Specifically looking for claimable items
     const claimableItem = items.find((item: any) => {
-      // 1. Explicitly claimable signals
+      // Must not be explicitly claimed or disabled
+      if (item.status === 'CLAIMED' || item.status === 'COMPLETED' || item.isClaimed || item.enable === 0 || item.enable === false) return false;
+      
+      const str = JSON.stringify(item).toLowerCase();
+      if (str.includes('"status":"claimed"') || str.includes('"claimed":true') || str.includes('already claimed') || str.includes('done')) return false;
+
+      // Must be claimable
       if (item.enable === 1 || item.enable === true) return true;
       if (typeof item.status === 'string' && ['CLAIMABLE', 'AVAILABLE', 'READY', 'CLAIM', 'ACTIVE'].includes(item.status.toUpperCase())) return true;
       if (item.status === 1 || item.isClaimable === true) return true;
-      
-      const str = JSON.stringify(item).toLowerCase();
-      
-      // 2. Explicitly claimed or disabled signals (SKIP)
-      if (item.status === 'CLAIMED' || item.status === 'COMPLETED' || item.isClaimed || item.enable === 0 || item.enable === false) return false;
-      if (str.includes('"status":"claimed"') || str.includes('"claimed":true') || str.includes('already claimed') || str.includes('done')) return false;
+      if (str.includes('claimable') || str.includes('ready to claim')) return true;
 
-      // 3. Keyword matching - if "claim" is anywhere in the properties (e.g. action: "Claim", buttonText: "Claim")
-      if (str.includes('claim')) return true;
+      // ATOM sometimes marks the daily point item with action/button label
+      if (item.action === 'Claim' || item.buttonText === 'Claim' || item.button_text === 'Claim' || item.buttonText === 'ရယူမည်') return true;
 
-      // 4. Fallback: anything with an ID and points that hasn't been rejected
-      return !!item.id && !!(item.point || item.points || item.pointAmount || item.reward || item.amount || item.value);
+      return false; // Stricter checking so we don't accidentally get an unclaimable point
     });
     
     if (claimableItem) {
         claimId = claimableItem.id;
         
-        // Extract precise point amount
+        // Extract precise point amount directly from API data
         const pts = claimableItem.point ?? claimableItem.points ?? claimableItem.pointAmount ?? claimableItem.amount ?? claimableItem.reward ?? claimableItem.value;
         if (pts !== undefined && pts !== null) {
             const numMatch = String(pts).match(/\d+/);
             if (numMatch) pointsToClaim = numMatch[0];
             else pointsToClaim = String(pts);
-        } else if (claimableItem.label) {
-            const numMatch = String(claimableItem.label).match(/\d+/);
+        } else if (claimableItem.label || claimableItem.title) {
+            const labelStr = String(claimableItem.label || claimableItem.title);
+            const numMatch = labelStr.match(/\d+/);
             if (numMatch) pointsToClaim = numMatch[0];
         }
     }
@@ -956,8 +960,8 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  const pointText = pointsToClaim ? `${pointsToClaim} မှတ်` : "Daily Point";
-  await ctx.reply(`ရယူနိုင်သော Daily Point ပမာဏ - ${pointText}`, Markup.inlineKeyboard([
+  const pointText = pointsToClaim ? `${pointsToClaim}` : "Daily Point";
+  await ctx.reply(`ရယူနိုင်သော Point ပမာဏ - ${pointText}`, Markup.inlineKeyboard([
       [Markup.button.callback('ရယူမည်', `claim_point_${claimId}`)]
   ]));
 });
@@ -1125,11 +1129,9 @@ bot.action('admin_stats', async (ctx) => {
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
 });
 
-bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [value] as any : null, async (ctx) => {
+bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   try {
-    const dataStr = (ctx.callbackQuery as any).data;
-    const parts = dataStr.split('_');
-    const page = parseInt(parts[3]) || 0;
+    const page = parseInt(ctx.match[1]) || 0;
     const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     
@@ -1182,14 +1184,12 @@ bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [
   }
 });
 
-bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? [value] as any : null, async (ctx) => {
+bot.action(/^admin_user_detail_(\d+)_(\d+)$/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
-  const dataStr = (ctx.callbackQuery as any).data;
-  const parts = dataStr.split('_');
-  const userId = parts[3];
-  const page = parts[4] || '0';
+  const userId = ctx.match[1];
+  const page = ctx.match[2] || '0';
   
   const db = await getDb();
   const user = db.users?.[userId];
@@ -1222,14 +1222,12 @@ bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? 
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
 });
 
-bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [value] as any : null, async (ctx) => {
+bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
-  const dataStr = (ctx.callbackQuery as any).data;
-  const parts = dataStr.split('_');
-  const userId = parts[3];
-  const page = parts[4] || '0';
+  const userId = ctx.match[1];
+  const page = ctx.match[2] || '0';
   
   const db = await getDb();
   if (db.users && db.users[userId]) {
