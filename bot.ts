@@ -155,12 +155,12 @@ function checkGameCooldown(userId: number): number {
 async function handleCooldownCountdown(ctx: any, userId: number): Promise<void> {
   let waitTime = checkGameCooldown(userId);
   if (waitTime <= 0) return;
-  const cdMsg = await ctx.reply(`⏳ ${waitTime}`);
+  const cdMsg = await ctx.reply(` ${waitTime}`);
   while (waitTime > 0) {
     await new Promise(r => setTimeout(r, 1000));
     waitTime--;
     if (waitTime > 0) {
-      await ctx.telegram.editMessageText(ctx.chat.id, cdMsg.message_id, undefined, `⏳ ${waitTime}`).catch(()=>{});
+      await ctx.telegram.editMessageText(ctx.chat.id, cdMsg.message_id, undefined, ` ${waitTime}`).catch(()=>{});
     }
   }
   await ctx.telegram.deleteMessage(ctx.chat.id, cdMsg.message_id).catch(()=>{});
@@ -349,7 +349,7 @@ const isMenuCommand = (text: string) => {
 const authWizard = new Scenes.WizardScene<any>(
   'AUTH_WIZARD',
   async (ctx) => {
-    await ctx.reply("📲 ဖုန်းနံပါတ်လေး ရိုက်ထည့်ပေးပါဗျ။ (ဥပမာ - 097xxxxxxx)\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)");
+    await ctx.reply(" ဖုန်းနံပါတ်လေး ရိုက်ထည့်ပေးပါဗျ။ (ဥပမာ - 097xxxxxxx)\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)");
     return ctx.wizard.next();
   },
   async (ctx) => {
@@ -360,7 +360,7 @@ const authWizard = new Scenes.WizardScene<any>(
     if (ctx.message && 'text' in ctx.message) {
       if (isMenuCommand(ctx.message.text)) {
         await ctx.scene.leave();
-        await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
+        await ctx.reply(" လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
         return;
       }
       
@@ -369,22 +369,22 @@ const authWizard = new Scenes.WizardScene<any>(
       if (phone.startsWith("09")) phone = phone.slice(1);
       
       if (phone.length < 7 || phone.length > 10) {
-        await ctx.reply("❌ ဖုန်းနံပါတ် မှားယွင်းနေပါတယ်၊ ပြန်လည်စစ်ဆေးပေးပါ။");
+        await ctx.reply(" ဖုန်းနံပါတ် မှားယွင်းနေပါတယ်၊ ပြန်လည်စစ်ဆေးပေးပါ။");
         return;
       }
       
       ctx.wizard.state.phone = phone;
-      const msg = await ctx.reply("⏳ OTP ပို့နေပါပြီဗျ...");
+      const msg = await ctx.reply(" OTP ပို့နေပါပြီဗျ...");
       
       const res = await atomApiPost('/mytmapi/v1/my/local-auth/send-otp?msisdn=&userid=-1&v=4.16.0', { msisdn: phone });
       await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
       
       if (res && res.status === 'success' && res.data?.attribute?.code) {
         ctx.wizard.state.otpCode = res.data.attribute.code;
-        await ctx.reply(`📨 +95${phone} ကို OTP ပို့လိုက်ပါပြီ။\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)`);
+        await ctx.reply(` +95${phone} ကို OTP ပို့လိုက်ပါပြီ။\n\n(မလုပ်လိုပါက /cancel ကိုနှိပ်ပါ)`);
         return ctx.wizard.next();
       } else {
-        await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+        await ctx.reply(" ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
         return ctx.scene.leave();
       }
     }
@@ -397,18 +397,18 @@ const authWizard = new Scenes.WizardScene<any>(
     if (ctx.message && 'text' in ctx.message) {
       if (isMenuCommand(ctx.message.text)) {
         await ctx.scene.leave();
-        await ctx.reply("❌ လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
+        await ctx.reply(" လုပ်ဆောင်ချက်ကို ရပ်စဲလိုက်ပါသည်။ ခလုတ်ကို ပြန်နှိပ်ပေးပါ။");
         return;
       }
 
       const otp = ctx.message.text.replace(/\D/g, '');
       if (otp.length !== 6) {
-        await ctx.reply("❌ OTP ဂဏန်း ၆ လုံး ပြည့်အောင် ရိုက်ထည့်ပေးပါဗျ။ (မလုပ်လိုပါက /cancel ဟုရိုက်၍ ထွက်နိုင်ပါသည်)");
+        await ctx.reply(" OTP ဂဏန်း ၆ လုံး ပြည့်အောင် ရိုက်ထည့်ပေးပါဗျ။ (မလုပ်လိုပါက /cancel ဟုရိုက်၍ ထွက်နိုင်ပါသည်)");
         return;
       }
 
       
-      const msg = await ctx.reply("⏳ OTP မှန်မမှန် စစ်ဆေးနေတယ်ဗျ...");
+      const msg = await ctx.reply(" OTP မှန်မမှန် စစ်ဆေးနေတယ်ဗျ...");
       
       const res = await atomApiPost('/mytmapi/v1/my/local-auth/verify-otp?msisdn=&userid=-1&v=4.16.0', {
         msisdn: ctx.wizard.state.phone,
@@ -427,10 +427,10 @@ const authWizard = new Scenes.WizardScene<any>(
           refreshToken: payload.refresh_token
         });
         
-        await ctx.reply("✅ အကောင့်ဝင်တာ အောင်မြင်သွားပါပြီ 🎉", getMainKeyboard(true));
+        await ctx.reply(" အကောင့်ဝင်တာ အောင်မြင်သွားပါပြီ ", getMainKeyboard(true));
         return ctx.scene.leave();
       } else {
-        await ctx.reply("❌ OTP မှားနေပါတယ်။ /start ကိုနှိပ်ပြီး ပြန်စမ်းကြည့်ပေးပါဗျ။");
+        await ctx.reply(" OTP မှားနေပါတယ်။ /start ကိုနှိပ်ပြီး ပြန်စမ်းကြည့်ပေးပါဗျ။");
         return ctx.scene.leave();
       }
     }
@@ -440,16 +440,16 @@ const authWizard = new Scenes.WizardScene<any>(
 function getMainKeyboard(isLoggedIn: boolean) {
   if (!isLoggedIn) {
     return Markup.keyboard([
-      ['🔑 အကောင့်ဝင်ရန်']
+      [' အကောင့်ဝင်ရန်']
     ]).resize();
   }
   return Markup.keyboard([
-    ['💰 လက်ကျန်ငွေစစ်ရန်', '📊 ပွိုင့်စစ်ရန်'],
-    ['🎟️ TohToh ကူပွန်', '🎮 TohToh ဆော့ရန်'],
-    ['🎟️ TohToh Live ဝယ်ယူရန်'],
-    ['🌾 ရွှေလယ်တော ကူပွန်', '🐔 ရွှေလယ်တော ဆော့ရန်'],
-    ['🌾 ရွှေလယ်တော Live ဝယ်ယူရန်'],
-    ['🎁 Daily Point Claim', '🔄 အကောင့်ထွက်ရန်']
+    [' လက်ကျန်ငွေစစ်ရန်', ' ပွိုင့်စစ်ရန်'],
+    [' TohToh ကူပွန်', ' TohToh ဆော့ရန်'],
+    [' TohToh Live ဝယ်ယူရန်'],
+    [' ရွှေလယ်တော ကူပွန်', ' ရွှေလယ်တော ဆော့ရန်'],
+    [' ရွှေလယ်တော Live ဝယ်ယူရန်'],
+    [' Daily Point Claim', ' အကောင့်ထွက်ရန်']
   ]).resize();
 }
 
@@ -463,7 +463,7 @@ bot.use(async (ctx, next) => {
     const banned = await isUserBanned(ctx.from.id);
     if (banned) {
       // Return early and optionally notify the user
-      return ctx.reply("❌ သင်၏အကောင့်ကို ပိတ်ပင်ထားပါသည်။ (You are banned)").catch(() => {});
+      return ctx.reply(" သင်၏အကောင့်ကို ပိတ်ပင်ထားပါသည်။ (You are banned)").catch(() => {});
     }
   }
 
@@ -489,26 +489,26 @@ bot.use(async (ctx, next) => {
 
 bot.start(async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  const msg = sess ? "ပြန်လည်ကြိုဆိုပါတယ်ဗျ။ အောက်က menu ခလုတ်လေးတွေနှိပ်ပြီး ဆက်သုံးလို့ရပါပြီ။" : "Nyth Atom Bot ကနေ ကြိုဆိုပါတယ်။ စသုံးဖို့ '🔑 အကောင့်ဝင်ရန်' ကို နှိပ်ပေးပါ။";
+  const msg = sess ? "ပြန်လည်ကြိုဆိုပါတယ်ဗျ။ အောက်က menu ခလုတ်လေးတွေနှိပ်ပြီး ဆက်သုံးလို့ရပါပြီ။" : "Nyth Atom Bot ကနေ ကြိုဆိုပါတယ်။ စသုံးဖို့ ' အကောင့်ဝင်ရန်' ကို နှိပ်ပေးပါ။";
   await ctx.reply(msg, getMainKeyboard(!!sess));
 });
 
-bot.hears('🔑 အကောင့်ဝင်ရန်', (ctx) => ctx.scene.enter('AUTH_WIZARD'));
+bot.hears(' အကောင့်ဝင်ရန်', (ctx) => ctx.scene.enter('AUTH_WIZARD'));
 
-bot.hears('🔄 အကောင့်ထွက်ရန်', async (ctx) => {
+bot.hears(' အကောင့်ထွက်ရန်', async (ctx) => {
   await clearSession(ctx.from.id);
-  await ctx.reply("👋 အကောင့် ထွက်လိုက်ပါပြီ ။", getMainKeyboard(false));
+  await ctx.reply(" အကောင့် ထွက်လိုက်ပါပြီ ။", getMainKeyboard(false));
 });
 
-bot.hears('💰 လက်ကျန်ငွေစစ်ရန်', async (ctx) => {
+bot.hears(' လက်ကျန်ငွေစစ်ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ လက်ကျန်ငွေ စစ်ဆေးနေပါတယ်...");
+  const waitMsg = await ctx.reply(" လက်ကျန်ငွေ စစ်ဆေးနေပါတယ်...");
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/lightweight-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (res?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   if (res && res.status === 'success') {
     const attr = res.data?.attribute || {};
@@ -517,86 +517,86 @@ bot.hears('💰 လက်ကျန်ငွေစစ်ရန်', async (ctx) =
     const voicePack = attr.packsPieData?.voice?.remaining ?? 0;
     const smsPack = attr.packsPieData?.sms?.remaining ?? 0;
     
-    await ctx.reply(`💰 လက်ကျန်ငွေ: ${mb.toLocaleString()} Ks\n🌐 Data: ${dataPack.toLocaleString()} MB\n📞 Voice: ${voicePack.toLocaleString()} Min\n💬 SMS: ${smsPack.toLocaleString()} SMS`);
+    await ctx.reply(` လက်ကျန်ငွေ: ${mb.toLocaleString()} Ks\n Data: ${dataPack.toLocaleString()} MB\n Voice: ${voicePack.toLocaleString()} Min\n SMS: ${smsPack.toLocaleString()} SMS`);
   } else {
-    await ctx.reply("❌ အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
+    await ctx.reply(" အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
   }
 });
 
-bot.hears('📊 ပွိုင့်စစ်ရန်', async (ctx) => {
+bot.hears(' ပွိုင့်စစ်ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ ပွိုင့်များကို စစ်ဆေးနေပါတယ်...");
+  const waitMsg = await ctx.reply(" ပွိုင့်များကို စစ်ဆေးနေပါတယ်...");
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (res?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   if (res && res.status === 'success') {
     const attr = res.data?.attribute || {};
-    await ctx.reply(`⭐ ပွိုင့်အမှတ်: ${attr.totalPoint?.toLocaleString()} Pts\n🏅 အဆင့်: ${attr.starStatusLabel}\n📅 Point သက်တမ်း: ${attr.validityEndDateText}`);
+    await ctx.reply(` ပွိုင့်အမှတ်: ${attr.totalPoint?.toLocaleString()} Pts\n အဆင့်: ${attr.starStatusLabel}\n Point သက်တမ်း: ${attr.validityEndDateText}`);
   } else {
-    await ctx.reply("❌ အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
+    await ctx.reply(" အခုချိန် အချက်အလက်ယူလို့ မရသေးပါဘူး။ ခဏနေမှ ထပ်စမ်းကြည့်ပေးပါဗျ။");
   }
 });
 
-bot.hears('🎟️ TohToh ကူပွန်', async (ctx) => {
+bot.hears(' TohToh ကူပွန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ", getMainKeyboard(false));
   
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (res?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   if (res && res.status === 'success') {
     const count = res.data?.attribute?.couponBalance?.totalCoupon ?? 0;
-    await ctx.reply(`🎟️ TohToh ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
+    await ctx.reply(` TohToh ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
   } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+    await ctx.reply(" ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 });
 
-bot.hears('🌾 ရွှေလယ်တော ကူပွန်', async (ctx) => {
+bot.hears(' ရွှေလယ်တော ကူပွန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
   
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (res?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   if (res && res.status === 'success') {
     const count = res.data?.attribute?.couponBalance ?? 0;
-    await ctx.reply(`🌾 ရွှေလယ်တော ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
+    await ctx.reply(` ရွှေလယ်တော ဂိမ်း ကစားခွင့် (${count}) ကြိမ်`);
   } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+    await ctx.reply(" ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 });
 
-bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
+bot.hears(' TohToh ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
   await handleCooldownCountdown(ctx, ctx.from.id);
   
-  const waitMsg = await ctx.reply("⏳ Toh Toh ဂိမ်း ဆော့နေပါတယ်...");
+  const waitMsg = await ctx.reply(" Toh Toh ဂိမ်း ဆော့နေပါတယ်...");
 
   const dashRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+    return ctx.reply(" ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 
   const count = dashRes.data?.attribute?.couponBalance?.totalCoupon ?? 0;
   if (count <= 0) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
+    return ctx.reply(" လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
   let maxLevel = 3;
@@ -613,7 +613,7 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -625,40 +625,40 @@ bot.hears('🎮 TohToh ဆော့ရန်', async (ctx) => {
     if (remaining < 0) remaining = 0;
 
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
-    await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
+    await ctx.reply(` ဂုဏ်ယူပါတယ်။\n"${attr.prizeName}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
     let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title || "ကစားခွင့် မကျန်တော့ပါ။";
     if (res?.errors?.message?.title && typeof res.errors.message.title === 'string' && !res.errors.message.title.includes("Failed") && !res.errors.message.title.includes("မအောင်မြင်ပါ")) {
        errMsg = res.errors.message.title + " - " + errMsg;
     }
-    await ctx.reply(`❌ ${errMsg}`);
+    await ctx.reply(` ${errMsg}`);
   }
 });
 
-bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ctx) => {
+bot.hears(' ရွှေလယ်တော ဆော့ရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
   await handleCooldownCountdown(ctx, ctx.from.id);
   
-  const waitMsg = await ctx.reply("⏳ ရွှေလယ်တော ဂိမ်း ဆော့နေပါတယ်...");
+  const waitMsg = await ctx.reply(" ရွှေလယ်တော ဂိမ်း ဆော့နေပါတယ်...");
 
   const dashRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
 
   if (dashRes?._authFailed) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (!dashRes || dashRes.status !== 'success') {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+    return ctx.reply(" ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
   }
 
   const count = dashRes.data?.attribute?.couponBalance ?? 0;
   if (count <= 0) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
+    return ctx.reply(" လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
   }
 
   let maxScore = 165;
@@ -682,7 +682,7 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-    return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+    return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   if (res && res.status === 'success' && res.data?.attribute) {
@@ -699,24 +699,24 @@ bot.hears('🐔 ရွှေလယ်တော ဆော့ရန်', async (ct
     if (remaining < 0) remaining = 0;
 
     const balanceText = remaining > 0 ? `လက်ကျန်အကြိမ် - ${remaining}` : `လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။`;
-    await ctx.reply(`🎉 ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
+    await ctx.reply(` ဂုဏ်ယူပါတယ်။\n"${prize}" ကို လက်ခံရရှိပါပြီ\n${balanceText}`);
   } else {
     const errorMsg = res?.message || res?.originalResponse?.message || "ကစားခွင့် မကျန်တော့ပါ။";
-    await ctx.reply(`❌ ${errorMsg}`);
+    await ctx.reply(` ${errorMsg}`);
   }
 });
 
-bot.hears('🎟️ TohToh Live ဝယ်ယူရန်', async (ctx) => {
+bot.hears(' TohToh Live ဝယ်ယူရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
 
-  const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
+  const waitMsg = await ctx.reply(" ခနစောင့်ပေးပါ...");
 
   const getPackRes = await authApiGet(ctx.from.id, `/mytmapi/v1/my/tohtohunited/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
 
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
 
-  if (getPackRes?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (getPackRes?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   const packs = getPackRes?.data?.attribute?.luckyChanceItems?.packPurchase?.filter((p: any) => p.type === 'toh_toh_united_pack');
 
@@ -731,7 +731,7 @@ bot.hears('🎟️ TohToh Live ဝယ်ယူရန်', async (ctx) => {
     
     await ctx.reply("ဝယ်ယူလိုသော ပက်ကေ့ချ်ကို ရွေးချယ်ပါ -", Markup.inlineKeyboard(buttons));
   } else {
-    await ctx.reply("❌ ဝယ်ယူရန် ပက်ကေ့ချ် ရှာမတွေ့ပါ။");
+    await ctx.reply(" ဝယ်ယူရန် ပက်ကေ့ချ် ရှာမတွေ့ပါ။");
   }
 });
 
@@ -739,12 +739,12 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
   const offerId = ctx.match[1];
   const sess = await getSession(ctx.from?.id);
   if (!sess) {
-    await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
+    await ctx.answerCbQuery(" အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
     return;
   }
   
   await ctx.answerCbQuery();
-  const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
+  const waitMsg = await ctx.reply(" ခနစောင့်ပေးပါ...");
 
   const bodyObj = { offerId };
   const buyRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/tohtohunited/purchase-game-pack-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`, bodyObj);
@@ -752,7 +752,7 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
 
   if (buyRes?._authFailed) {
-      await ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+      await ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
       return;
   }
 
@@ -763,7 +763,7 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
      if (getPackRes && getPackRes.status === 'success') {
         remain = getPackRes.data?.attribute?.couponBalance?.totalCoupon ?? getPackRes.data?.attribute?.couponBalance ?? getPackRes.data?.attribute?.toTohBalance?.totalCoupon ?? '-';
      }
-     await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
+     await ctx.editMessageText(` ၀ယျယူမှုအောငျမွငျပါတယျ။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
   } else {
      let errMsg = buyRes?.errors?.message?.message || buyRes?.message || buyRes?.errors?.title;
      
@@ -791,21 +791,21 @@ bot.action(/buy_tohtoh_(.+)/, async (ctx) => {
          errMsg = buyRes.errors.message.title + " - " + errMsg;
      }
 
-     await ctx.editMessageText(`❌ ${errMsg}`);
+     await ctx.editMessageText(` ${errMsg}`);
   }
 });
 
-bot.hears('🌾 ရွှေလယ်တော Live ဝယ်ယူရန်', async (ctx) => {
+bot.hears(' ရွှေလယ်တော Live ဝယ်ယူရန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
+  const waitMsg = await ctx.reply(" ခနစောင့်ပေးပါ...");
   
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/get-coupon-balance?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
 
-  if (res?._authFailed) return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+  if (res?._authFailed) return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
 
   if (res && res.status === 'success' && res.data?.attribute?.purchaseLife) {
     const purchaseInfo = res.data.attribute.purchaseLife;
@@ -828,19 +828,19 @@ bot.hears('🌾 ရွှေလယ်တော Live ဝယ်ယူရန်', a
 bot.action('buy_goldenfarm', async (ctx) => {
   const sess = await getSession(ctx.from?.id);
   if (!sess) {
-    await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
+    await ctx.answerCbQuery(" အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
     return;
   }
 
   await ctx.answerCbQuery();
-  const waitMsg = await ctx.reply("⏳ ခနစောင့်ပေးပါ...");
+  const waitMsg = await ctx.reply(" ခနစောင့်ပေးပါ...");
 
   const res = await authApiGet(ctx.from.id, `/mytmapi/v1/my/goldenfarm/purchase-life?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
 
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res?._authFailed) {
-      await ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+      await ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
       return;
   }
 
@@ -851,7 +851,7 @@ bot.action('buy_goldenfarm', async (ctx) => {
     if (getPackRes && getPackRes.status === 'success') {
        remain = getPackRes.data?.attribute?.couponBalance ?? '-';
     }
-    await ctx.editMessageText(`✅ ၀ယ်ယူမှုအောင်မြင်ပါတယ်။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
+    await ctx.editMessageText(` ၀ယျယူမှုအောငျမွငျပါတယျ။ ယခုလက်ကျန်အကြိမ် - ${remain}`);
   } else {
     let errMsg = res?.errors?.message?.message || res?.message || res?.errors?.title;
     
@@ -882,15 +882,15 @@ bot.action('buy_goldenfarm', async (ctx) => {
     if (typeof res === 'string' && res.includes('404')) {
         errMsg = "လောလောဆယ် ဝယ်ယူ၍မရနိုင်သေးပါ။";
     }
-    await ctx.editMessageText(`❌ ${errMsg}`);
+    await ctx.editMessageText(` ${errMsg}`);
   }
 });
 
-bot.hears('🎁 Daily Point Claim', async (ctx) => {
+bot.hears(' Daily Point Claim', async (ctx) => {
   const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+  if (!sess) return ctx.reply(" အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
+  const waitMsg = await ctx.reply(" နေ့စဉ် Point ယူနေပါတယ်...");
   
   // Simulate visiting the Point Dashboard first. This initializes the daily point availability on ATOM's servers.
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
@@ -899,7 +899,7 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   if (listRes?._authFailed) {
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-      return ctx.reply("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
+      return ctx.reply(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။", getMainKeyboard(false));
   }
 
   // Fallback to v1 if v2 list doesn't have items
@@ -951,7 +951,7 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   if (!claimId) {
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("✅ ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ (သို့) ယူရန်မရှိသေးပါ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
+    return ctx.reply(" ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ (သို့) ယူရန်မရှိသေးပါ။ မနက်ဖြန်မှ ထပ်ယူပေးပါဗျ။");
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
@@ -966,12 +966,12 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   const claimId = ctx.match[1];
   const sess = await getSession(ctx.from?.id);
   if (!sess) {
-    await ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
+    await ctx.answerCbQuery(" အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
     return;
   }
   
   await ctx.answerCbQuery();
-  await ctx.editMessageText("⏳ နေ့စဉ် Point ယူနေပါတယ်...");
+  await ctx.editMessageText(" နေ့စဉ် Point ယူနေပါတယ်...");
 
   // Parse ID to number if it's purely digits, some APIs are strict about type
   let parsedId: string | number = claimId;
@@ -982,7 +982,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   let claimRes = await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/claim?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, bodyObj);
   
   if (claimRes?._authFailed) {
-      return ctx.editMessageText("❌ အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ '🔄 အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
+      return ctx.editMessageText(" အကောင့် Token သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ' အကောင့်ထွက်ရန်' ကိုနှိပ်ပြီး အကောင့်ပြန်ဝင်ပေးပါ။").catch(() => {});
   }
 
   // Fallback to v2 if v1 claim fails or not found
@@ -995,7 +995,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
 
   if (claimRes && claimRes.status === 'success') {
     const msg = claimRes.data?.attribute?.message || claimRes.message || "အောင်မြင်ပါတယ်ဗျ။";
-    await ctx.editMessageText(`🎉 နေ့စဉ် Point ရယူခြင်း အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
+    await ctx.editMessageText(` နေ့စဉ် Point ရယူခြင်း အောင်မြင်ပါတယ်ဗျ။ ${msg}`);
   } else {
     let errMsg = claimRes?.errors?.message?.message || claimRes?.message || claimRes?.errors?.title;
     
@@ -1012,7 +1012,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
     if (errMsg.toLowerCase().includes('already claimed') || errMsg.includes('ယူပြီး')) {
          errMsg = "ဒီနေ့အတွက် နေ့စဉ် Point ယူပြီးသွားပါပြီ။";
     }
-    await ctx.editMessageText(`❌ ${errMsg}`);
+    await ctx.editMessageText(` ${errMsg}`);
   }
 });
 
@@ -1033,26 +1033,26 @@ async function showAdminMenu(ctx: any) {
   const bannedUsers = usersArray.filter(u => u.banned).length;
   const usage = db.stats?.commandUsage || {};
   
-  let msg = `🛠 <b>Nyth Admin Dashboard</b>\n\n`;
-  msg += `👥 <b>Total Users</b>: ${totalUsers}\n`;
-  msg += `🟢 <b>Active Sessions</b>: ${activeSessions}\n`;
-  msg += `🔴 <b>Banned Users</b>: ${bannedUsers}\n\n`;
-  msg += `📈 <b>Top Command Usage</b>:\n`;
+  let msg = ` <b>Nyth Admin Dashboard</b>\n\n`;
+  msg += ` <b>Total Users</b>: ${totalUsers}\n`;
+  msg += ` <b>Active Sessions</b>: ${activeSessions}\n`;
+  msg += ` <b>Banned Users</b>: ${bannedUsers}\n\n`;
+  msg += ` <b>Top Command Usage</b>:\n`;
   
   const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
   if (sortedUsage.length === 0) {
     msg += 'No commands recorded yet.\n';
   } else {
     for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
+      msg += ` <code>${cmd}</code>: ${count} times\n`;
     }
   }
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '👥 Manage Users', callback_data: 'admin_users_list_0' }],
-      [{ text: '📢 Broadcast', callback_data: 'admin_broadcast_info' }],
-      [{ text: '🔄 Refresh', callback_data: 'admin_main' }]
+      [{ text: ' Manage Users', callback_data: 'admin_users_list_0' }],
+      [{ text: ' Broadcast', callback_data: 'admin_broadcast_info' }],
+      [{ text: ' Refresh', callback_data: 'admin_main' }]
     ]
   };
   
@@ -1075,19 +1075,19 @@ bot.action('admin_main', async (ctx) => {
   const activeSessions = Object.keys(db.sessions || {}).length;
   const bannedUsers = usersArray.filter(u => u.banned).length;
   
-  let msg = `🛠 <b>Nyth Admin Dashboard</b>\n\n`;
-  msg += `📊 <b>System Statistics</b>\n`;
-  msg += `👥 Total Users: <b>${totalUsers}</b>\n`;
-  msg += `🟢 Active Sessions: <b>${activeSessions}</b>\n`;
-  msg += `🔴 Banned Users: <b>${bannedUsers}</b>\n\n`;
+  let msg = ` <b>Nyth Admin Dashboard</b>\n\n`;
+  msg += ` <b>System Statistics</b>\n`;
+  msg += ` Total Users: <b>${totalUsers}</b>\n`;
+  msg += ` Active Sessions: <b>${activeSessions}</b>\n`;
+  msg += ` Banned Users: <b>${bannedUsers}</b>\n\n`;
   msg += `အောက်ပါ Menu များမှ လုပ်ဆောင်လိုသည့် အရာကို ရွေးချယ်ပါ။`;
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '👥 Manage Users', callback_data: 'admin_users_list_0' }],
-      [{ text: '📈 Command Usage Stats', callback_data: 'admin_stats' }],
-      [{ text: '📢 Broadcast Message', callback_data: 'admin_broadcast_info' }],
-      [{ text: '🔄 Refresh', callback_data: 'admin_main' }]
+      [{ text: ' Manage Users', callback_data: 'admin_users_list_0' }],
+      [{ text: ' Command Usage Stats', callback_data: 'admin_stats' }],
+      [{ text: ' Broadcast Message', callback_data: 'admin_broadcast_info' }],
+      [{ text: ' Refresh', callback_data: 'admin_main' }]
     ]
   };
   
@@ -1104,20 +1104,20 @@ bot.action('admin_stats', async (ctx) => {
   
   const db = await getDb();
   const usage = db.stats?.commandUsage || {};
-  let msg = `📈 <b>Command Usage Stats</b>\n\n`;
+  let msg = ` <b>Command Usage Stats</b>\n\n`;
   
   const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 15);
   if (sortedUsage.length === 0) {
     msg += 'No commands recorded yet.\n';
   } else {
     for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
+      msg += ` <code>${cmd}</code>: ${count} times\n`;
     }
   }
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '« Back to Dashboard', callback_data: 'admin_main' }]
+      [{ text: ' Back to Dashboard', callback_data: 'admin_main' }]
     ]
   };
 
@@ -1148,14 +1148,14 @@ bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [
     const start = page * perPage;
     const usersSlice = usersArray.slice(start, start + perPage);
 
-    let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\nအောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:`;
+    let msg = ` <b>User Management (Page ${page + 1}/${totalPages || 1})</b>\n\nအောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:`;
     
     const inline_keyboard: any[][] = [];
 
     for (const user of usersSlice) {
       const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20);
       const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const statusIcon = user.banned ? '🔴' : '👤';
+      const statusIcon = user.banned ? '' : '';
       
       inline_keyboard.push([{ 
         text: `${statusIcon} ${safeName}`, 
@@ -1164,15 +1164,15 @@ bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [
     }
 
     if (usersSlice.length === 0) {
-      msg = `👥 <b>User Management</b>\n\nNo users found.`;
+      msg = ` <b>User Management</b>\n\nNo users found.`;
     }
 
     const navRow = [];
-    if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
-    if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
+    if (page > 0) navRow.push({ text: ' Prev', callback_data: `admin_users_list_${page - 1}` });
+    if (page < totalPages - 1) navRow.push({ text: 'Next ', callback_data: `admin_users_list_${page + 1}` });
     if (navRow.length > 0) inline_keyboard.push(navRow);
     
-    inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
+    inline_keyboard.push([{ text: ' Back to Dashboard', callback_data: 'admin_main' }]);
 
     await ctx.answerCbQuery().catch(() => {});
     await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
@@ -1201,9 +1201,9 @@ bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? 
   const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
   const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'N/A';
-  const status = user.banned ? '🔴 Banned' : '🟢 Active';
+  const status = user.banned ? ' Banned' : ' Active';
 
-  let msg = `👤 <b>User Details</b>\n\n`;
+  let msg = ` <b>User Details</b>\n\n`;
   msg += `<b>ID:</b> <code>${userId}</code>\n`;
   msg += `<b>Name:</b> ${safeName}\n`;
   msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
@@ -1212,11 +1212,11 @@ bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? 
 
   const inline_keyboard: any[][] = [];
   
-  const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
+  const actionText = user.banned ? ' Unban User' : ' Ban User';
   inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
   
-  inline_keyboard.push([{ text: '« Back to Users List', callback_data: `admin_users_list_${page}` }]);
-  inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
+  inline_keyboard.push([{ text: ' Back to Users List', callback_data: `admin_users_list_${page}` }]);
+  inline_keyboard.push([{ text: ' Back to Dashboard', callback_data: 'admin_main' }]);
 
   await ctx.answerCbQuery().catch(() => {});
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
@@ -1236,7 +1236,7 @@ bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [
     const isCurrentlyBanned = db.users[userId].banned;
     
     if (userId === adminId.toString() && !isCurrentlyBanned) {
-      return ctx.answerCbQuery('⚠️ Admin အကောင့်ကို Ban ၍ မရပါ။', { show_alert: true }).catch(() => {});
+      return ctx.answerCbQuery(' Admin အကောင့်ကို Ban ၍ မရပါ။', { show_alert: true }).catch(() => {});
     }
     
     db.users[userId].banned = !isCurrentlyBanned;
@@ -1249,9 +1249,9 @@ bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
     const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'N/A';
-    const status = user.banned ? '🔴 Banned' : '🟢 Active';
+    const status = user.banned ? ' Banned' : ' Active';
 
-    let msg = `👤 <b>User Details</b>\n\n`;
+    let msg = ` <b>User Details</b>\n\n`;
     msg += `<b>ID:</b> <code>${userId}</code>\n`;
     msg += `<b>Name:</b> ${safeName}\n`;
     msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
@@ -1259,10 +1259,10 @@ bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [
     msg += `<b>Last Seen:</b> ${user.last_seen ? new Date(user.last_seen).toLocaleString() : 'Unknown'}\n`;
 
     const inline_keyboard: any[][] = [];
-    const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
+    const actionText = user.banned ? ' Unban User' : ' Ban User';
     inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
-    inline_keyboard.push([{ text: '« Back to Users List', callback_data: `admin_users_list_${page}` }]);
-    inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
+    inline_keyboard.push([{ text: ' Back to Users List', callback_data: `admin_users_list_${page}` }]);
+    inline_keyboard.push([{ text: ' Back to Dashboard', callback_data: 'admin_main' }]);
 
     await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
   } else {
@@ -1274,12 +1274,12 @@ bot.action('admin_broadcast_info', async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
-  const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>\n\nHTML formatting လည်း သုံးလို့ရပါတယ်။`;
+  const msg = ` <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>\n\nHTML formatting လည်း သုံးလို့ရပါတယ်။`;
   await ctx.answerCbQuery().catch(() => {});
   await ctx.editMessageText(msg, { 
     parse_mode: 'HTML',
     reply_markup: {
-      inline_keyboard: [[{ text: '« Back to Admin', callback_data: 'admin_main' }]]
+      inline_keyboard: [[{ text: ' Back to Admin', callback_data: 'admin_main' }]]
     }
   }).catch(console.error);
 });
@@ -1301,7 +1301,7 @@ bot.command('broadcast', async (ctx) => {
   let successCount = 0;
   let failCount = 0;
 
-  const sendingMsg = await ctx.reply('⏳ ပေးပို့နေပါသည်... ခဏစောင့်ပါ။');
+  const sendingMsg = await ctx.reply(' ပေးပို့နေပါသည်... ခဏစောင့်ပါ။');
 
   for (const userId of users) {
     if (db.users[userId] && db.users[userId].banned) continue;
@@ -1317,7 +1317,7 @@ bot.command('broadcast', async (ctx) => {
     ctx.chat.id, 
     sendingMsg.message_id, 
     undefined, 
-    `✅ Broadcast ပြီးဆုံးပါပြီ။\n\nအောင်မြင်: ${successCount} ယောက်\nမအောင်မြင်: ${failCount} ယောက်`
+    ` Broadcast ပြီးဆုံးပါပြီ။\n\nအောင်မြင်: ${successCount} ယောက်\nမအောင်မြင်: ${failCount} ယောက်`
   );
 });
 
