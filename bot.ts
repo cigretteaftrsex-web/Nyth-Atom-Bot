@@ -121,17 +121,17 @@ bot.on('callback_query', async (ctx, next) => {
       await ctx.answerCbQuery().catch(()=>{});
 
       if (data === 'adm_main') {
-        await renderAdminDashboard(ctx);
+        await renderAdminDashboard(ctx).catch(e => ctx.reply("Error: " + (e as Error).message));
       } 
       else if (data.startsWith('adm_pg_')) {
         const page = parseInt(data.replace('adm_pg_', ''), 10);
-        await renderUsersPage(ctx, page);
+        await renderUsersPage(ctx, page).catch(e => ctx.reply("Page Error: " + (e as Error).message));
       } 
       else if (data.startsWith('adm_u_')) {
         const parts = data.split('_');
         const userId = parts[2];
         const page = parseInt(parts[3], 10) || 0;
-        await renderUserProfile(ctx, userId, page);
+        await renderUserProfile(ctx, userId, page).catch(e => ctx.reply("User Error: " + (e as Error).message));
       } 
       else if (data.startsWith('adm_b_')) {
         const parts = data.split('_');
@@ -145,7 +145,7 @@ bot.on('callback_query', async (ctx, next) => {
           if (db.users && db.users[userId]) {
             db.users[userId].banned = !db.users[userId].banned;
             await saveDb(db);
-            await renderUserProfile(ctx, userId, page);
+            await renderUserProfile(ctx, userId, page).catch(e => ctx.reply("Ban Error: " + (e as Error).message));
           }
         }
       } 
@@ -159,17 +159,18 @@ bot.on('callback_query', async (ctx, next) => {
         await ctx.editMessageText(msg, { 
           parse_mode: 'HTML', 
           reply_markup: { inline_keyboard: [[{ text: '« Back to Dashboard', callback_data: 'adm_main' }]] } 
-        }).catch(e => console.error("Edit error in search:", e));
+        }).catch(e => ctx.reply("Search Error: " + (e as Error).message));
       } 
       else if (data === 'adm_bc') {
         const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>`;
         await ctx.editMessageText(msg, { 
           parse_mode: 'HTML', 
           reply_markup: { inline_keyboard: [[{ text: '« Back to Dashboard', callback_data: 'adm_main' }]] } 
-        }).catch(e => console.error("Edit error in bc:", e));
+        }).catch(e => ctx.reply("BC Error: " + (e as Error).message));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Admin Router Error:", err);
+      await ctx.reply("Router Error: " + err.message).catch(()=>{});
     }
     return; // DO NOT CALL next() FOR ADMIN EVENTS
   }
@@ -222,7 +223,8 @@ async function renderUsersPage(ctx: any, page: number) {
     const usersSlice = usersArray.slice(offset, offset + limit);
 
     let msg = `📋 <b>All Users (Page ${safePage + 1}/${totalPages})</b>\n`;
-    msg += `Total Users: <b>${usersArray.length}</b>\n\n`;
+    msg += `Total Users: <b>${usersArray.length}</b>\n`;
+    msg += `<i>Updated: ${new Date().toLocaleTimeString()}</i>\n\n`;
     
     const inline_keyboard: any[][] = [];
     
@@ -257,7 +259,10 @@ async function renderUsersPage(ctx: any, page: number) {
     
     inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'adm_main' }]);
 
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(e => console.error("Edit failed:", e));
+    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(async (e: any) => {
+      console.error("Edit failed:", e);
+      await ctx.reply("Telegram API Error: " + e.message).catch(()=>{});
+    });
   } catch (e) {
     console.error("renderUsersPage error:", e);
   }
@@ -285,6 +290,7 @@ async function renderUserProfile(ctx: any, userId: string, fromPage: number = 0)
     msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
     msg += `<b>Status:</b> ${status}\n`;
     msg += `<b>Last Seen:</b> ${user.last_seen ? new Date(user.last_seen).toLocaleString() : 'Unknown'}\n`;
+    msg += `<i>Refreshed: ${new Date().toLocaleTimeString()}</i>\n`;
 
     const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
     
