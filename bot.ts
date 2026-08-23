@@ -1130,13 +1130,18 @@ bot.action('admin_stats', async (ctx) => {
 });
 
 
-bot.action(/admin_users_list_(\d+)/, async (ctx) => {
+bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
   try {
-    await ctx.answerCbQuery().catch(() => {}); // Stop loading animation immediately
+    await ctx.answerCbQuery().catch(() => {});
     const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
 
-    const page = parseInt(ctx.match[1] || '0', 10);
+    let page = 0;
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const match = ctx.callbackQuery.data.match(/^admin_users_list_(\d+)$/);
+      if (match) page = parseInt(match[1], 10);
+    }
+
     const perPage = 10;
     const db = await getDb();
     
@@ -1156,6 +1161,9 @@ bot.action(/admin_users_list_(\d+)/, async (ctx) => {
       });
     
     const totalPages = Math.ceil(usersArray.length / perPage) || 1;
+    if (page >= totalPages) page = totalPages - 1;
+    if (page < 0) page = 0;
+
     const start = page * perPage;
     const usersSlice = usersArray.slice(start, start + perPage);
 
@@ -1181,8 +1189,12 @@ bot.action(/admin_users_list_(\d+)/, async (ctx) => {
     }
 
     const navRow = [];
-    if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
-    if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
+    if (page > 0) {
+      navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
+    }
+    if (page < totalPages - 1) {
+      navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
+    }
     if (navRow.length > 0) inline_keyboard.push(navRow);
     
     inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
@@ -1193,15 +1205,26 @@ bot.action(/admin_users_list_(\d+)/, async (ctx) => {
   }
 });
 
-bot.action(/admin_user_detail_(\d+)_(\d+)/, async (ctx) => {
+bot.action(/^admin_user_detail_(\d+)_(\d+)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
     const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
 
-    const userId = ctx.match[1];
-    const page = ctx.match[2] || '0';
+    let userId = '';
+    let page = '0';
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const match = ctx.callbackQuery.data.match(/^admin_user_detail_(\d+)_(\d+)$/);
+      if (match) {
+        userId = match[1];
+        page = match[2];
+      }
+    }
     
+    if (!userId) {
+       return ctx.editMessageText('Invalid User ID').catch(() => {});
+    }
+
     const db = await getDb();
     const user = db.users?.[userId];
     
@@ -1233,22 +1256,30 @@ bot.action(/admin_user_detail_(\d+)_(\d+)/, async (ctx) => {
   }
 });
 
-bot.action(/admin_toggle_ban_(\d+)_(\d+)/, async (ctx) => {
+bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery().catch(() => {});
     const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
 
-    const userId = ctx.match[1];
-    const page = ctx.match[2] || '0';
-    
+    let userId = '';
+    let page = '0';
+    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
+      const match = ctx.callbackQuery.data.match(/^admin_toggle_ban_(\d+)_(\d+)$/);
+      if (match) {
+        userId = match[1];
+        page = match[2];
+      }
+    }
+      
+    if (!userId) return;
+
     const db = await getDb();
     if (db.users && db.users[userId]) {
       const isCurrentlyBanned = db.users[userId].banned;
       
       if (userId === adminId.toString() && !isCurrentlyBanned) {
-         // Cannot ban admin
-         return;
+         return; // Cannot ban admin
       }
       
       db.users[userId].banned = !isCurrentlyBanned;
