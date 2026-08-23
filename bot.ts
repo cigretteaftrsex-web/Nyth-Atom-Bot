@@ -1020,309 +1020,159 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 });
 
+// ==========================================
+// 🛠️ ADMIN PANEL (NEW ROBUST VERSION)
+// ==========================================
+
 bot.command('admin', async (ctx) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
-    return;
-  }
-  
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return;
   await showAdminMenu(ctx);
 });
 
 async function showAdminMenu(ctx: any) {
   const db = await getDb();
-  const usersArray = Object.entries(db.users || {}).map(([id, u]: any) => ({ id, ...u }));
-  const totalUsers = usersArray.length;
+  const totalUsers = Object.keys(db.users || {}).length;
   const activeSessions = Object.keys(db.sessions || {}).length;
-  const bannedUsers = usersArray.filter(u => u.banned).length;
-  const usage = db.stats?.commandUsage || {};
   
-  let msg = `🛠 <b>Nyth Admin Dashboard</b>\n\n`;
+  let msg = `🛠 <b>Admin Dashboard</b>\n\n`;
   msg += `👥 <b>Total Users</b>: ${totalUsers}\n`;
   msg += `🟢 <b>Active Sessions</b>: ${activeSessions}\n`;
-  msg += `🔴 <b>Banned Users</b>: ${bannedUsers}\n\n`;
-  msg += `📈 <b>Top Command Usage</b>:\n`;
-  
-  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
-  if (sortedUsage.length === 0) {
-    msg += 'No commands recorded yet.\n';
-  } else {
-    for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
-    }
-  }
 
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '👥 Manage Users', callback_data: 'admin_users_list_0' }],
-      [{ text: '📢 Broadcast', callback_data: 'admin_broadcast_info' }],
-      [{ text: '🔄 Refresh', callback_data: 'admin_main' }]
-    ]
-  };
-  
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('👥 Manage Users', 'admin_list_0')],
+    [Markup.button.callback('📢 Broadcast Message', 'admin_broadcast')],
+    [Markup.button.callback('🔄 Refresh', 'admin_refresh')]
+  ]);
+
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
+    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard.reply_markup }).catch(() => {});
   } else {
-    await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
+    await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: keyboard.reply_markup }).catch(() => {});
   }
 }
 
-bot.action('admin_main', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID || '8797803204';
-  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
-  
+bot.action('admin_refresh', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  
-  const db = await getDb();
-  const usersArray = Object.entries(db.users || {}).map(([id, u]: any) => ({ id, ...u }));
-  const totalUsers = usersArray.length;
-  const activeSessions = Object.keys(db.sessions || {}).length;
-  const bannedUsers = usersArray.filter(u => u.banned).length;
-  
-  let msg = `🛠 <b>Nyth Admin Dashboard</b>\n\n`;
-  msg += `📊 <b>System Statistics</b>\n`;
-  msg += `👥 Total Users: <b>${totalUsers}</b>\n`;
-  msg += `🟢 Active Sessions: <b>${activeSessions}</b>\n`;
-  msg += `🔴 Banned Users: <b>${bannedUsers}</b>\n\n`;
-  msg += `အောက်ပါ Menu များမှ လုပ်ဆောင်လိုသည့် အရာကို ရွေးချယ်ပါ။`;
-
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '👥 Manage Users', callback_data: 'admin_users_list_0' }],
-      [{ text: '📈 Command Usage Stats', callback_data: 'admin_stats' }],
-      [{ text: '📢 Broadcast Message', callback_data: 'admin_broadcast_info' }],
-      [{ text: '🔄 Refresh', callback_data: 'admin_main' }]
-    ]
-  };
-  
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
-  } else {
-    await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
-  }
+  await showAdminMenu(ctx);
 });
 
-bot.action('admin_stats', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID || '8797803204';
-  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
-  
-  const db = await getDb();
-  const usage = db.stats?.commandUsage || {};
-  let msg = `📈 <b>Command Usage Stats</b>\n\n`;
-  
-  const sortedUsage = Object.entries(usage).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 15);
-  if (sortedUsage.length === 0) {
-    msg += 'No commands recorded yet.\n';
-  } else {
-    for (const [cmd, count] of sortedUsage) {
-      msg += `▪️ <code>${cmd}</code>: ${count} times\n`;
-    }
-  }
-
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '« Back to Dashboard', callback_data: 'admin_main' }]
-    ]
-  };
-
+// 1. User List Pagination
+bot.action(/admin_list_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(console.error);
-});
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
 
+  const page = parseInt(ctx.match[1], 10);
+  const perPage = 10;
+  const db = await getDb();
+  
+  const usersArray = Object.entries(db.users || {})
+    .map(([id, u]: any) => ({ id, ...u }))
+    .sort((a, b) => new Date(b.last_seen || 0).getTime() - new Date(a.last_seen || 0).getTime());
+  
+  const totalPages = Math.ceil(usersArray.length / perPage) || 1;
+  const start = page * perPage;
+  const usersSlice = usersArray.slice(start, start + perPage);
 
-bot.action(/^admin_users_list_(\d+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery().catch(() => {});
-    const adminId = process.env.ADMIN_USER_ID || '8797803204';
-    if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
-
-    let page = 0;
-    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
-      const match = ctx.callbackQuery.data.match(/^admin_users_list_(\d+)$/);
-      if (match) page = parseInt(match[1], 10);
-    }
-
-    const perPage = 10;
-    const db = await getDb();
-    
-    const usersArray = Object.entries(db.users || {})
-      .map(([idStr, u]: [string, any]) => ({
-        id: u?.id || idStr,
-        first_name: u?.first_name || 'Unknown',
-        last_name: u?.last_name || '',
-        username: u?.username || '',
-        banned: !!u?.banned,
-        last_seen: u?.last_seen || 0
-      }))
-      .sort((a, b) => {
-        const dateA = new Date(a.last_seen || 0).getTime() || 0;
-        const dateB = new Date(b.last_seen || 0).getTime() || 0;
-        return dateB - dateA;
-      });
-    
-    const totalPages = Math.ceil(usersArray.length / perPage) || 1;
-    if (page >= totalPages) page = totalPages - 1;
-    if (page < 0) page = 0;
-
-    const start = page * perPage;
-    const usersSlice = usersArray.slice(start, start + perPage);
-
-    let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages})</b>\n\n`;
-    msg += `Total Users: ${usersArray.length}\n`;
-    msg += `အောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:\n`;
-    
-    const inline_keyboard: any[][] = [];
-
-    for (const user of usersSlice) {
-      const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20) || 'Unknown';
-      const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const statusIcon = user.banned ? '🔴' : '🟢';
-      
-      inline_keyboard.push([{ 
-        text: `${statusIcon} ${safeName}`, 
-        callback_data: `admin_user_detail_${user.id}_${page}` 
-      }]);
-    }
-
-    if (usersSlice.length === 0) {
-      msg = `👥 <b>User Management</b>\n\nNo users found.`;
-    }
-
-    const navRow = [];
-    if (page > 0) {
-      navRow.push({ text: '⬅️ Prev', callback_data: `admin_users_list_${page - 1}` });
-    }
-    if (page < totalPages - 1) {
-      navRow.push({ text: 'Next ➡️', callback_data: `admin_users_list_${page + 1}` });
-    }
-    if (navRow.length > 0) inline_keyboard.push(navRow);
-    
-    inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
-
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
-  } catch (err: any) {
-    console.error("admin_users_list error:", err);
+  let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages})</b>\n\n`;
+  msg += `အောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:\n`;
+  
+  const buttons = [];
+  for (const user of usersSlice) {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20) || 'Unknown';
+    const statusIcon = user.banned ? '🔴' : '🟢';
+    buttons.push([Markup.button.callback(`${statusIcon} ${name}`, `admin_user_${user.id}_${page}`)]);
   }
+
+  const navRow = [];
+  if (page > 0) navRow.push(Markup.button.callback('⬅️ Prev', `admin_list_${page - 1}`));
+  if (page < totalPages - 1) navRow.push(Markup.button.callback('Next ➡️', `admin_list_${page + 1}`));
+  if (navRow.length > 0) buttons.push(navRow);
+  
+  buttons.push([Markup.button.callback('« Back to Dashboard', 'admin_refresh')]);
+
+  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
 });
 
-bot.action(/^admin_user_detail_(\d+)_(\d+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery().catch(() => {});
-    const adminId = process.env.ADMIN_USER_ID || '8797803204';
-    if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
+// 2. User Detail View
+bot.action(/admin_user_(\d+)_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
 
-    let userId = '';
-    let page = '0';
-    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
-      const match = ctx.callbackQuery.data.match(/^admin_user_detail_(\d+)_(\d+)$/);
-      if (match) {
-        userId = match[1];
-        page = match[2];
-      }
-    }
+  const userId = ctx.match[1];
+  const page = ctx.match[2];
+  const db = await getDb();
+  const user = db.users?.[userId];
+  
+  if (!user) return ctx.editMessageText('User not found!').catch(() => {});
+
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
+  const status = user.banned ? '🔴 Banned' : '🟢 Active';
+
+  let msg = `👤 <b>User Details</b>\n\n`;
+  msg += `<b>ID:</b> <code>${userId}</code>\n`;
+  msg += `<b>Name:</b> ${name}\n`;
+  msg += `<b>Username:</b> ${user.username ? `@${user.username}` : 'N/A'}\n`;
+  msg += `<b>Status:</b> ${status}\n`;
+  msg += `<b>Last Seen:</b> ${user.last_seen ? new Date(user.last_seen).toLocaleString() : 'Unknown'}\n`;
+
+  const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
+  const buttons = [
+    [Markup.button.callback(actionText, `admin_ban_${userId}_${page}`)],
+    [Markup.button.callback('« Back to Users List', `admin_list_${page}`)],
+    [Markup.button.callback('« Back to Dashboard', 'admin_refresh')]
+  ];
+
+  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
+});
+
+// 3. Ban/Unban Toggle
+bot.action(/admin_ban_(\d+)_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
+
+  const userId = ctx.match[1];
+  const page = ctx.match[2];
+  
+  if (userId === adminId.toString()) {
+     return ctx.answerCbQuery('⚠️ Admin ကို Ban မရပါ', { show_alert: true }).catch(() => {});
+  }
+
+  const db = await getDb();
+  if (db.users && db.users[userId]) {
+    db.users[userId].banned = !db.users[userId].banned;
+    await saveDb(db);
     
-    if (!userId) {
-       return ctx.editMessageText('Invalid User ID').catch(() => {});
-    }
-
-    const db = await getDb();
-    const user = db.users?.[userId];
-    
-    if (!user) {
-      return ctx.editMessageText('User not found!').catch(() => {});
-    }
-
+    const user = db.users[userId];
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
-    const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'N/A';
     const status = user.banned ? '🔴 Banned' : '🟢 Active';
 
     let msg = `👤 <b>User Details</b>\n\n`;
     msg += `<b>ID:</b> <code>${userId}</code>\n`;
-    msg += `<b>Name:</b> ${safeName}\n`;
-    msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
+    msg += `<b>Name:</b> ${name}\n`;
+    msg += `<b>Username:</b> ${user.username ? `@${user.username}` : 'N/A'}\n`;
     msg += `<b>Status:</b> ${status}\n`;
     msg += `<b>Last Seen:</b> ${user.last_seen ? new Date(user.last_seen).toLocaleString() : 'Unknown'}\n`;
 
-    const inline_keyboard: any[][] = [];
     const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
-    inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
-    inline_keyboard.push([{ text: '« Back to Users List', callback_data: `admin_users_list_${page}` }]);
-    inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
+    const buttons = [
+      [Markup.button.callback(actionText, `admin_ban_${userId}_${page}`)],
+      [Markup.button.callback('« Back to Users List', `admin_list_${page}`)],
+      [Markup.button.callback('« Back to Dashboard', 'admin_refresh')]
+    ];
 
-    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
-  } catch (err: any) {
-    console.error("admin_user_detail error:", err);
+    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
   }
 });
 
-bot.action(/^admin_toggle_ban_(\d+)_(\d+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery().catch(() => {});
-    const adminId = process.env.ADMIN_USER_ID || '8797803204';
-    if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return;
-
-    let userId = '';
-    let page = '0';
-    if (ctx.callbackQuery && 'data' in ctx.callbackQuery) {
-      const match = ctx.callbackQuery.data.match(/^admin_toggle_ban_(\d+)_(\d+)$/);
-      if (match) {
-        userId = match[1];
-        page = match[2];
-      }
-    }
-      
-    if (!userId) return;
-
-    const db = await getDb();
-    if (db.users && db.users[userId]) {
-      const isCurrentlyBanned = db.users[userId].banned;
-      
-      if (userId === adminId.toString() && !isCurrentlyBanned) {
-         return; // Cannot ban admin
-      }
-      
-      db.users[userId].banned = !isCurrentlyBanned;
-      await saveDb(db);
-      
-      const user = db.users[userId];
-      const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
-      const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'N/A';
-      const status = user.banned ? '🔴 Banned' : '🟢 Active';
-
-      let msg = `👤 <b>User Details</b>\n\n`;
-      msg += `<b>ID:</b> <code>${userId}</code>\n`;
-      msg += `<b>Name:</b> ${safeName}\n`;
-      msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
-      msg += `<b>Status:</b> ${status}\n`;
-      msg += `<b>Last Seen:</b> ${user.last_seen ? new Date(user.last_seen).toLocaleString() : 'Unknown'}\n`;
-
-      const inline_keyboard: any[][] = [];
-      const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
-      inline_keyboard.push([{ text: actionText, callback_data: `admin_toggle_ban_${userId}_${page}` }]);
-      inline_keyboard.push([{ text: '« Back to Users List', callback_data: `admin_users_list_${page}` }]);
-      inline_keyboard.push([{ text: '« Back to Dashboard', callback_data: 'admin_main' }]);
-
-      await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard } }).catch(console.error);
-    }
-  } catch (err: any) {
-    console.error("admin_toggle_ban error:", err);
-  }
-});
-
-bot.action('admin_broadcast_info', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID || '8797803204';
-  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
-
-  const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>\n\nHTML formatting လည်း သုံးလို့ရပါတယ်။`;
+// 4. Broadcast Menu
+bot.action('admin_broadcast', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.editMessageText(msg, { 
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[{ text: '« Back to Admin', callback_data: 'admin_main' }]]
-    }
-  }).catch(console.error);
+  const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>`;
+  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[Markup.button.callback('« Back to Dashboard', 'admin_refresh')]] } }).catch(() => {});
 });
 
 bot.command('broadcast', async (ctx) => {
@@ -1332,7 +1182,7 @@ bot.command('broadcast', async (ctx) => {
   const text = ctx.message.text;
   const match = text.match(/^\/broadcast\s+([\s\S]+)$/);
   if (!match) {
-    return ctx.reply('အသုံးပြုပုံ: <code>/broadcast သင်ပို့လိုသောစာများ</code>', { parse_mode: 'HTML' }).catch(console.error);
+    return ctx.reply('အသုံးပြုပုံ: <code>/broadcast သင်ပို့လိုသောစာများ</code>', { parse_mode: 'HTML' }).catch(() => {});
   }
 
   const message = match[1];
@@ -1341,9 +1191,8 @@ bot.command('broadcast', async (ctx) => {
   
   let successCount = 0;
   let failCount = 0;
-
+  
   const sendingMsg = await ctx.reply('⏳ ပေးပို့နေပါသည်... ခဏစောင့်ပါ။');
-
   for (const userId of users) {
     if (db.users[userId] && db.users[userId].banned) continue;
     try {
@@ -1353,13 +1202,12 @@ bot.command('broadcast', async (ctx) => {
       failCount++;
     }
   }
-
   await ctx.telegram.editMessageText(
     ctx.chat.id, 
     sendingMsg.message_id, 
     undefined, 
-    `✅ Broadcast ပြီးဆုံးပါပြီ။\n\nအောင်မြင်: ${successCount} ယောက်\nမအောင်မြင်: ${failCount} ယောက်`
-  );
+    `✅ Broadcast ပြီးဆုံးပါပြီ。\n\nအောင်မြင်: ${successCount} ယောက်\nမအောင်မြင်: ${failCount} ယောက်`
+  ).catch(() => {});
 });
 
 export function startBot() {
