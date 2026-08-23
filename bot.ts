@@ -1021,7 +1021,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// 🛠️ ADMIN PANEL (ULTIMATE BULLETPROOF VERSION)
+// 🛠️ ADMIN PANEL (PREMIUM SEARCH & LIST ALL)
 // ==========================================
 
 bot.command('admin', async (ctx) => {
@@ -1035,14 +1035,16 @@ async function showAdminMenu(ctx: any) {
   const totalUsers = Object.keys(db.users || {}).length;
   const activeSessions = Object.keys(db.sessions || {}).length;
   
-  let msg = `🛠 <b>Admin Dashboard</b>\n\n`;
-  msg += `👥 <b>Total Users</b>: ${totalUsers}\n`;
-  msg += `🟢 <b>Active Sessions</b>: ${activeSessions}\n`;
+  let msg = `🌟 <b>Admin Control Center</b> 🌟\n\n`;
+  msg += `👥 <b>Total Users</b>: <code>${totalUsers}</code>\n`;
+  msg += `🟢 <b>Active Sessions</b>: <code>${activeSessions}</code>\n\n`;
+  msg += `<i>စနစ်ကို စီမံရန် အောက်ပါ လုပ်ဆောင်ချက်များကို ရွေးချယ်ပါ:</i>`;
 
   const buttons = [
-    [{ text: '👥 Manage Users', callback_data: 'admin_list_0' }],
+    [{ text: '📋 View All Users (တစ်ဆက်တည်းပြရန်)', callback_data: 'admin_list_all' }],
+    [{ text: '🔍 Search User (ရှာဖွေရန်)', callback_data: 'admin_search' }],
     [{ text: '📢 Broadcast Message', callback_data: 'admin_broadcast' }],
-    [{ text: '🔄 Refresh', callback_data: 'admin_refresh' }]
+    [{ text: '🔄 Refresh Dashboard', callback_data: 'admin_refresh' }]
   ];
 
   if (ctx.callbackQuery) {
@@ -1052,56 +1054,89 @@ async function showAdminMenu(ctx: any) {
   }
 }
 
-async function handleAdminList(ctx: any, page: number) {
-  const perPage = 10;
+async function handleAdminListAll(ctx: any) {
   const db = await getDb();
   
   const usersArray = Object.entries(db.users || {})
     .map(([id, u]: any) => ({ id, ...u }))
     .sort((a, b) => new Date(b.last_seen || 0).getTime() - new Date(a.last_seen || 0).getTime());
   
-  const totalPages = Math.ceil(usersArray.length / perPage) || 1;
-  // Safety bounds
-  if (page >= totalPages) page = totalPages - 1;
-  if (page < 0) page = 0;
+  // Telegram has limits on inline keyboard size. We show the latest 80 active users safely.
+  const usersSlice = usersArray.slice(0, 80);
 
-  const start = page * perPage;
-  const usersSlice = usersArray.slice(start, start + perPage);
-
-  let msg = `👥 <b>User Management (Page ${page + 1}/${totalPages})</b>\n\n`;
-  msg += `Total Users: ${usersArray.length}\n`;
-  msg += `အောက်ပါ User များထဲမှ တစ်ဦးကို ရွေးချယ်ပါ:\n`;
+  let msg = `📋 <b>All Users List</b>\n\n`;
+  msg += `Total Users: <b>${usersArray.length}</b>\n`;
+  if (usersArray.length > 80) {
+     msg += `<i>(Showing latest 80 active users. Use 🔍 Search to find others.)</i>\n\n`;
+  }
+  msg += `အောက်ပါ User အမည်ကို နှိပ်၍ စီမံနိုင်ပါသည်:\n`;
   
   const buttons: any[][] = [];
   for (const user of usersSlice) {
     const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 20) || 'Unknown';
     const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const statusIcon = user.banned ? '🔴' : '🟢';
-    buttons.push([{ text: `${statusIcon} ${safeName}`, callback_data: `admin_user_${user.id}_${page}` }]);
+    buttons.push([{ text: `${statusIcon} ${safeName}`, callback_data: `admin_user_${user.id}` }]);
   }
 
-  const navRow = [];
-  if (page > 0) navRow.push({ text: '⬅️ Prev', callback_data: `admin_list_${page - 1}` });
-  if (page < totalPages - 1) navRow.push({ text: 'Next ➡️', callback_data: `admin_list_${page + 1}` });
-  if (navRow.length > 0) buttons.push(navRow);
-  
   buttons.push([{ text: '« Back to Dashboard', callback_data: 'admin_refresh' }]);
 
   await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
 }
 
-async function handleAdminUserDetail(ctx: any, userId: string, page: number) {
+async function handleAdminSearchMenu(ctx: any) {
+  let msg = `🔍 <b>Search User</b>\n\n`;
+  msg += `အသုံးပြုသူကို ရှာဖွေရန် အောက်ပါအတိုင်း စာရိုက်ထည့်ပါ:\n\n`;
+  msg += `👉 <code>/find @username</code> (Username ဖြင့်ရှာရန်)\n`;
+  msg += `👉 <code>/find 123456789</code> (User ID ဖြင့်ရှာရန်)\n\n`;
+  msg += `<i>ဥပမာ - /find @nytheris</i>`;
+
+  await ctx.editMessageText(msg, { 
+    parse_mode: 'HTML', 
+    reply_markup: { inline_keyboard: [[{ text: '« Back to Dashboard', callback_data: 'admin_refresh' }]] } 
+  }).catch(() => {});
+}
+
+bot.command('find', async (ctx) => {
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (!adminId || ctx.from.id.toString() !== adminId.toString()) return;
+
+  const text = ctx.message.text;
+  const match = text.match(/^\/find\s+(.+)$/);
+  if (!match) {
+    return ctx.reply('အသုံးပြုပုံ: <code>/find @username</code> (သို့) <code>/find userid</code>', { parse_mode: 'HTML' }).catch(() => {});
+  }
+
+  const query = match[1].trim().replace('@', '').toLowerCase();
+  const db = await getDb();
+  const usersArray = Object.entries(db.users || {}).map(([id, u]: any) => ({ id, ...u }));
+  
+  const foundUser = usersArray.find(u => 
+    u.id.toString() === query || 
+    (u.username && u.username.toLowerCase() === query)
+  );
+
+  if (foundUser) {
+    await sendUserDetailMessage(ctx, foundUser.id);
+  } else {
+    await ctx.reply(`❌ <b>${query}</b> အမည်ဖြင့် User ကို ရှာမတွေ့ပါ။`, { parse_mode: 'HTML' }).catch(() => {});
+  }
+});
+
+async function sendUserDetailMessage(ctx: any, userId: string) {
   const db = await getDb();
   const user = db.users?.[userId];
-  
-  if (!user) return ctx.editMessageText('User not found!').catch(() => {});
+  if (!user) {
+    if (ctx.callbackQuery) return ctx.editMessageText('User not found!').catch(() => {});
+    return ctx.reply('User not found!').catch(() => {});
+  }
 
   const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
   const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const safeUsername = user.username ? String(user.username).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'N/A';
   const status = user.banned ? '🔴 Banned' : '🟢 Active';
 
-  let msg = `👤 <b>User Details</b>\n\n`;
+  let msg = `👤 <b>User Profile</b>\n\n`;
   msg += `<b>ID:</b> <code>${userId}</code>\n`;
   msg += `<b>Name:</b> ${safeName}\n`;
   msg += `<b>Username:</b> ${safeUsername !== 'N/A' ? `@${safeUsername}` : 'N/A'}\n`;
@@ -1110,15 +1145,19 @@ async function handleAdminUserDetail(ctx: any, userId: string, page: number) {
 
   const actionText = user.banned ? '🟢 Unban User' : '🔴 Ban User';
   const buttons = [
-    [{ text: actionText, callback_data: `admin_ban_${userId}_${page}` }],
-    [{ text: '« Back to Users List', callback_data: `admin_list_${page}` }],
+    [{ text: actionText, callback_data: `admin_ban_${userId}` }],
+    [{ text: '📋 Back to All Users', callback_data: 'admin_list_all' }],
     [{ text: '« Back to Dashboard', callback_data: 'admin_refresh' }]
   ];
 
-  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
+  } else {
+    await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }).catch(() => {});
+  }
 }
 
-async function handleAdminBanToggle(ctx: any, userId: string, page: number) {
+async function handleAdminBanToggle(ctx: any, userId: string) {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (userId === adminId.toString()) {
      return ctx.answerCbQuery('⚠️ Admin ကို Ban မရပါ', { show_alert: true }).catch(() => {});
@@ -1128,7 +1167,7 @@ async function handleAdminBanToggle(ctx: any, userId: string, page: number) {
   if (db.users && db.users[userId]) {
     db.users[userId].banned = !db.users[userId].banned;
     await saveDb(db);
-    await handleAdminUserDetail(ctx, userId, page);
+    await sendUserDetailMessage(ctx, userId);
   }
 }
 
@@ -1167,40 +1206,36 @@ bot.command('broadcast', async (ctx) => {
   ).catch(() => {});
 });
 
-// 🌟 THE BULLETPROOF ROUTER 🌟
-// Intercepts ALL callback queries to guarantee admin buttons work regardless of regex quirks.
+// 🌟 THE BULLETPROOF ROUTER (PREMIUM SEARCH ENABLED) 🌟
 bot.on('callback_query', async (ctx, next) => {
   const adminId = process.env.ADMIN_USER_ID || '8797803204';
   const cbData = (ctx.callbackQuery as any).data;
   if (!cbData) return next();
 
-  // Only process admin routes if the user is the admin
   if (cbData.startsWith('admin_')) {
     if (!ctx.from || ctx.from.id.toString() !== adminId.toString()) {
       return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     }
 
     try {
-      await ctx.answerCbQuery().catch(() => {}); // Stop loading immediately
+      await ctx.answerCbQuery().catch(() => {});
       
       if (cbData === 'admin_refresh') {
         await showAdminMenu(ctx);
       } 
-      else if (cbData.startsWith('admin_list_')) {
-        const page = parseInt(cbData.replace('admin_list_', ''), 10) || 0;
-        await handleAdminList(ctx, page);
-      } 
+      else if (cbData === 'admin_list_all') {
+        await handleAdminListAll(ctx);
+      }
+      else if (cbData === 'admin_search') {
+        await handleAdminSearchMenu(ctx);
+      }
       else if (cbData.startsWith('admin_user_')) {
-        const parts = cbData.split('_'); // ['admin', 'user', '123456', '0']
-        const userId = parts[2];
-        const page = parseInt(parts[3], 10) || 0;
-        await handleAdminUserDetail(ctx, userId, page);
+        const userId = cbData.replace('admin_user_', '');
+        await sendUserDetailMessage(ctx, userId);
       } 
       else if (cbData.startsWith('admin_ban_')) {
-        const parts = cbData.split('_'); // ['admin', 'ban', '123456', '0']
-        const userId = parts[2];
-        const page = parseInt(parts[3], 10) || 0;
-        await handleAdminBanToggle(ctx, userId, page);
+        const userId = cbData.replace('admin_ban_', '');
+        await handleAdminBanToggle(ctx, userId);
       }
       else if (cbData === 'admin_broadcast') {
         const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>`;
@@ -1209,10 +1244,10 @@ bot.on('callback_query', async (ctx, next) => {
     } catch (err) {
       console.error("Admin Routing Error:", err);
     }
-    return; // Handled, do not pass to other handlers
+    return;
   }
 
-  return next(); // Pass to regular bot actions
+  return next();
 });
 
 export function startBot() {
