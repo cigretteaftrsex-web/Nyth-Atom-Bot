@@ -114,7 +114,8 @@ async function recordUser(from: any) {
 }
 
 async function isUserBanned(tgUserId: number): Promise<boolean> {
-  if (process.env.ADMIN_USER_ID && tgUserId.toString() === process.env.ADMIN_USER_ID.toString()) {
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (adminId && tgUserId.toString() === adminId.toString()) {
     return false;
   }
   const db = await getDb();
@@ -300,7 +301,7 @@ async function authApiGet(tgUserId: number, endpoint: string, customHeaders: any
        res._authFailed = true;
      }
   }
-  return res || { _authFailed: true };
+  return res || null;
 }
 
 async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, customHeaders: any = {}) {
@@ -334,7 +335,7 @@ async function authApiPost(tgUserId: number, endpoint: string, bodyObj: any, cus
        res._authFailed = true;
      }
   }
-  return res || { _authFailed: true };
+  return res || null;
 }
 
 const isMenuCommand = (text: string) => {
@@ -1016,7 +1017,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
 });
 
 bot.command('admin', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) {
     return;
   }
@@ -1063,7 +1064,7 @@ async function showAdminMenu(ctx: any) {
 }
 
 bot.action('admin_main', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
   
   await ctx.answerCbQuery().catch(() => {});
@@ -1098,7 +1099,7 @@ bot.action('admin_main', async (ctx) => {
 });
 
 bot.action('admin_stats', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
   
   const db = await getDb();
@@ -1129,7 +1130,7 @@ bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [
     const dataStr = (ctx.callbackQuery as any).data;
     const parts = dataStr.split('_');
     const page = parseInt(parts[3]) || 0;
-    const adminId = process.env.ADMIN_USER_ID;
+    const adminId = process.env.ADMIN_USER_ID || '8797803204';
     if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
     
     const perPage = 10;
@@ -1182,7 +1183,7 @@ bot.action((value: string) => value && value.startsWith('admin_users_list_') ? [
 });
 
 bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? [value] as any : null, async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
   const dataStr = (ctx.callbackQuery as any).data;
@@ -1222,7 +1223,7 @@ bot.action((value: string) => value && value.startsWith('admin_user_detail_') ? 
 });
 
 bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [value] as any : null, async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from?.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true }).catch(() => {});
 
   const dataStr = (ctx.callbackQuery as any).data;
@@ -1270,7 +1271,7 @@ bot.action((value: string) => value && value.startsWith('admin_toggle_ban_') ? [
 });
 
 bot.action('admin_broadcast_info', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) return ctx.answerCbQuery('Unauthorized', { show_alert: true });
 
   const msg = `📢 <b>Broadcast Mode</b>\n\nအားလုံးကို Message ပို့ရန် အောက်ပါအတိုင်း ရိုက်ထည့်ပါ:\n\n<code>/broadcast သင်ပို့လိုသောစာများ</code>\n\nHTML formatting လည်း သုံးလို့ရပါတယ်။`;
@@ -1284,7 +1285,7 @@ bot.action('admin_broadcast_info', async (ctx) => {
 });
 
 bot.command('broadcast', async (ctx) => {
-  const adminId = process.env.ADMIN_USER_ID;
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
   if (!adminId || ctx.from.id.toString() !== adminId.toString()) return;
 
   const text = ctx.message.text;
@@ -1366,7 +1367,8 @@ app.post('/api/ban', async (req, res) => {
   if (password !== (process.env.ADMIN_PASSWORD || 'admin123')) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (process.env.ADMIN_USER_ID && userId.toString() === process.env.ADMIN_USER_ID.toString() && action === 'ban') {
+  const adminId = process.env.ADMIN_USER_ID || '8797803204';
+  if (adminId && userId.toString() === adminId.toString() && action === 'ban') {
     return res.status(400).json({ error: 'Cannot ban admin user' });
   }
   const db = await getDb();
@@ -1407,7 +1409,7 @@ app.post('/api/broadcast', async (req, res) => {
   res.json({ success: true, successCount, failCount });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Admin API server listening on port ${PORT}`);
 });
