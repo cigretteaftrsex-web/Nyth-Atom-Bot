@@ -712,7 +712,9 @@ const authWizard = new Scenes.WizardScene<any>(
           token: payload.token,
           msisdn: payload.msisdn,
           userId: payload.user_id,
-          refreshToken: payload.refresh_token
+          subscriberId: payload.subscriber_id || payload.subscriberId || payload.accountId,
+          refreshToken: payload.refresh_token,
+          fullPayload: payload
         });
         
         await ctx.reply("✅ အကောင့်ဝင်တာ အောင်မြင်သွားပါပြီ 🎉", getMainKeyboard(true));
@@ -1333,42 +1335,11 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 });
 
-async function getCityRunSession(msisdn: string): Promise<string | null> {
-  try {
-    const res = await axios.get("https://cityrun.pro/ws/redirect/?AdNetwork=atom_app&ClickID=&Publisher=&msisdn=" + msisdn, {
-      httpsAgent: botHttpsAgent,
-      maxRedirects: 0,
-      validateStatus: () => true,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store"
-      }
-    });
-    const setCookie = res.headers['set-cookie'];
-    if (setCookie && setCookie.length > 0) {
-      const match = setCookie[0].match(/ci_session=([^;]+)/);
-      if (match) return match[1];
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
 
-async function cityRunPlayGame(ciSession: string) {
-  try {
-    await axios.get('https://cityrun.pro/playgame', {
-      httpsAgent: botHttpsAgent,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store",
-        "Cookie": "ci_session=" + ciSession
-      }
-    });
-  } catch (e) {}
-}
 
-async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
+
+
+async function cityRunApiPost(endpoint: string, body: any) {
   try {
     const headers: any = {
       "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
@@ -1378,9 +1349,6 @@ async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
       "Origin": "https://cityrun.pro",
       "X-Requested-With": "mm.com.atom.store",
     };
-    if (ciSession) {
-      headers["Cookie"] = "ci_session=" + ciSession;
-    }
     const res = await axios({
       httpsAgent: botHttpsAgent,
       method: "POST",
@@ -1396,6 +1364,63 @@ async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
   }
 }
 
+
+async function resolveCityRunUserId(ctx: any, sess: any): Promise<string> {
+    if (sess.cityRunId) return sess.cityRunId.toString();
+    
+    let possibleIds = new Set<string>();
+    if (sess.subscriberId) possibleIds.add(sess.subscriberId.toString());
+    if (sess.userId) possibleIds.add(sess.userId.toString());
+    
+    try {
+        const dashboard = await authApiGet(ctx.from.id, `/mytmapi/v1/my/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+        if (dashboard && dashboard.data) {
+            const dataStr = JSON.stringify(dashboard.data);
+            const match1 = dataStr.match(/"subscriber_?id"\s*:\s*"?(\d+)"?/i);
+            if (match1 && match1[1]) possibleIds.add(match1[1]);
+            const match2 = dataStr.match(/"accountId"\s*:\s*"?(\d+)"?/i);
+            if (match2 && match2[1]) possibleIds.add(match2[1]);
+        }
+    } catch(e) {}
+    
+    try {
+        const profile = await authApiGet(ctx.from.id, `/mytmapi/v1/my/profile?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
+        if (profile && profile.data) {
+            const dataStr = JSON.stringify(profile.data);
+            const match1 = dataStr.match(/"subscriber_?id"\s*:\s*"?(\d+)"?/i);
+            if (match1 && match1[1]) possibleIds.add(match1[1]);
+        }
+    } catch(e) {}
+    
+    for (const pid of Array.from(possibleIds)) {
+        if (!pid || pid === sess.msisdn) continue;
+        const b64 = Buffer.from(pid.toString()).toString('base64');
+        try {
+            const crRes = await axios.post("https://cityrun.pro/getUserData", { user_id: b64 }, {
+                headers: { "AUTH-TOKEN": "YXRvbUdhbWVzQVBJX1NaMDAwMTpBIzlLIVF4UjckUDlAMg==" },
+                validateStatus: () => true
+            });
+            if (crRes.data && crRes.data.status === 'success') {
+                if (crRes.data.data.user_type === 'sub' || Number(crRes.data.data.user_runs) > 0 || Number(crRes.data.data.user_coins) > 0) {
+                    sess.cityRunId = pid.toString();
+                    await saveSession(ctx.from.id, sess);
+                    return pid.toString();
+                }
+            }
+        } catch (e) {}
+    }
+    
+    let bestId = sess.userId ? sess.userId.toString() : sess.msisdn;
+    for (const pid of Array.from(possibleIds)) {
+        if (pid.toString().length >= 5 && pid.toString().length <= 7) {
+            bestId = pid.toString();
+        }
+    }
+    sess.cityRunId = bestId;
+    await saveSession(ctx.from.id, sess);
+    return bestId;
+}
+
 bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
@@ -1403,18 +1428,18 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   const waitMsg = await ctx.reply("⏳ City Run အချက်အလက်များကို ရယူနေပါတယ်...");
   
   // Try to use the original subscriber ID or fallback to MSISDN base64
-  let subId = sess.userId ? sess.userId.toString() : sess.msisdn;
+  const subId = await resolveCityRunUserId(ctx, sess);
   let b64UserId = Buffer.from(subId).toString('base64');
   
-  const ciSession = await getCityRunSession(sess.msisdn);
+  
   
   // Use CI Session with getUserData
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   
   // Retry if not found
   if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
      b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+     res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
@@ -1457,14 +1482,14 @@ bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
   
   const waitMsg = await ctx.reply("⏳ City Run အချက်အလက် ယူနေပါတယ်...");
-  let subId = sess.userId ? sess.userId.toString() : sess.msisdn;
+  const subId = await resolveCityRunUserId(ctx, sess);
   let b64UserId = Buffer.from(subId).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
   
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  
+  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
      b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+     res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
@@ -1497,13 +1522,9 @@ bot.action(/cityrun_play_auto_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   
   const b64UserId = ctx.match[1];
-  const ciSession = await getCityRunSession(sess.msisdn);
   
-  if (ciSession) {
-    await cityRunPlayGame(ciSession);
-  }
   
-  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   if (!checkRes || checkRes.status !== 'success' || !checkRes.data) {
     return ctx.editMessageText("❌ ဆာဗာအခက်အခဲကြောင့် ကစား၍မရသေးပါ။");
   }
@@ -1551,7 +1572,7 @@ bot.action(/cityrun_play_auto_(.+)/, async (ctx) => {
     
     await new Promise(r => setTimeout(r, waitTime));
     
-    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score }, ciSession || undefined);
+    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score });
     lastScore = score;
     
     if (claimRes && claimRes.status === 'success') {
@@ -1579,14 +1600,14 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
   
   const waitMsg = await ctx.reply("⏳ City Run Diamond Exchange အချက်အလက် ယူနေပါတယ်...");
-  let subId = sess.userId ? sess.userId.toString() : sess.msisdn;
+  const subId = await resolveCityRunUserId(ctx, sess);
   let b64UserId = Buffer.from(subId).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
   
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  
+  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
      b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+     res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
@@ -1643,14 +1664,14 @@ bot.action(/cityrun_exchange_auto_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ရှိသမျှ Diamond များကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
   const b64UserId = ctx.match[1];
-  const ciSession = await getCityRunSession(sess.msisdn);
+  
   
   let totalSpent = 0;
   let totalRunsGained = 0;
   let keepRedeeming = true;
   
   while (keepRedeeming) {
-    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
     if (!dataRes || dataRes.status !== 'success' || !dataRes.data) break;
     
     let currentCoins = Number(dataRes.data?.user_coins || 0);
@@ -1666,7 +1687,7 @@ bot.action(/cityrun_exchange_auto_(.+)/, async (ctx) => {
     }
     
     const bestOption = affordableOptions[0];
-    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id }, ciSession || undefined);
+    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id });
     
     if (redeemRes && redeemRes.status === 'success') {
        totalSpent += Number(bestOption.coins_threshold_value);
@@ -1696,8 +1717,8 @@ bot.action(/cityrun_exchange_([^_]+)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ဆုလက်ဆောင် လဲလှယ်နေပါသည်...");
   
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId }, ciSession || undefined);
+  
+  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId });
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
