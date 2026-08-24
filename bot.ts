@@ -1339,462 +1339,233 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
 
 
 
-async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
-  try {
-    const headers: any = {
-      "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-      "Accept": "*/*",
-      "Content-Type": "application/json",
-      "AUTH-TOKEN": "YXRvbUdhbWVzQVBJX1NaMDAwMTpBIzlLIVF4UjckUDlAMg==",
-      "Origin": "https://cityrun.pro",
-      "X-Requested-With": "mm.com.atom.store",
-    };
-    if (ciSession) headers["Cookie"] = "ci_session=" + ciSession;
-    const res = await axios({
-      httpsAgent: botHttpsAgent,
-      method: "POST",
-      url: "https://cityrun.pro" + endpoint,
-      data: body,
-      headers,
-      validateStatus: () => true,
-      timeout: 15000
-    });
-    return res.data;
-  } catch (e) {
-    return null;
-  }
-}
 
+import { CityRunService, CityRunSession, CityRunProfile } from './cityrun.service.js';
 
+// --- CITY RUN INTEGRATION ---
 
-async function resolveCityRunUserId(ctx: any, sess: any): Promise<string> {
-    if (sess.cityRunId && sess.cityRunId.toString().length >= 5 && sess.cityRunId.toString().length <= 7) {
-        return sess.cityRunId.toString();
-    }
+async function getValidCityRunData(tgUserId: number, msisdn: string): Promise<{session: CityRunSession, profile: CityRunProfile}> {
+    const db = await getDb();
+    if (!db.cityrun) db.cityrun = {};
+    let session = db.cityrun[tgUserId.toString()];
     
-    let possibleIds = new Set<string>();
-    if (sess.subscriberId) possibleIds.add(sess.subscriberId.toString());
-    if (sess.accountId) possibleIds.add(sess.accountId.toString());
-    if (sess.userId) possibleIds.add(sess.userId.toString());
+    if (!session || !session.authToken || !session.userId) {
+        session = await CityRunService.initializeSession(msisdn);
+        db.cityrun[tgUserId.toString()] = session;
+        await saveDb(db);
+    }
     
     try {
-        const dashboard = await authApiGet(ctx.from.id, `/mytmapi/v1/my/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-        if (dashboard && dashboard.data) {
-            const dataStr = JSON.stringify(dashboard.data);
-            const match1 = dataStr.match(/"subscriber_?id"\s*:\s*"?(\d+)"?/i);
-            if (match1 && match1[1]) possibleIds.add(match1[1]);
-            const match2 = dataStr.match(/"accountId"\s*:\s*"?(\d+)"?/i);
-            if (match2 && match2[1]) possibleIds.add(match2[1]);
+        const profile = await CityRunService.getUserData(session);
+        return { session, profile };
+    } catch (e: any) {
+        if (e.message.includes('expired') || e.message.includes('unauthorized') || e.message.includes('invalid') || e.message.includes('Token') || e.status === 401) {
+            session = await CityRunService.initializeSession(msisdn);
+            db.cityrun[tgUserId.toString()] = session;
+            await saveDb(db);
+            const profile = await CityRunService.getUserData(session);
+            return { session, profile };
         }
-    } catch(e) {}
+        throw e;
+    }
+}
+
+function generateCityRunDashboard(profile: CityRunProfile, session: CityRunSession) {
+    const maskedId = profile.userId.length > 4 
+        ? profile.userId.substring(0, 4) + '****' + profile.userId.substring(profile.userId.length - 2)
+        : profile.userId;
+
+    let msg = `🏃 <b>City Run Profile</b>\n\n`;
+    msg += `👤 <b>ID:</b> <code>${maskedId}</code>\n`;
+    msg += `👑 <b>Status:</b> ${profile.userType}\n`;
+    msg += `💎 <b>Diamond:</b> ${profile.diamonds.toLocaleString()}\n`;
+    msg += `🏃 <b>Runs:</b> ${profile.runs.toLocaleString()}\n`;
+    msg += `🎯 <b>Milestone:</b> ${profile.milestoneCount}/4\n\n`;
+
+    if (profile.milestoneCount === 4) {
+        msg += `✅ Milestones အားလုံး Claim ပြီးပါပြီ\n`;
+    } else {
+        msg += `⏳ Milestones ${4 - profile.milestoneCount} ခု ကျန်ပါသေးတယ်\n`;
+    }
+
+    const inlineKeyboard: any[][] = [];
+
+    if (profile.redemptionOptions && profile.redemptionOptions.length > 0) {
+        msg += `\n💎 <b>DIAMOND EXCHANGE</b>\n`;
+        const sortedOptions = [...profile.redemptionOptions].sort((a, b) => parseInt(a.coins_threshold_value || a.coins_required || 0) - parseInt(b.coins_threshold_value || b.coins_required || 0));
+        
+        for (const opt of sortedOptions) {
+            const cost = parseInt(opt.coins_threshold_value || opt.coins_required);
+            const reward = parseInt(opt.coins_runs || opt.runs_reward) || opt.coins_runs || opt.runs_reward;
+            
+            inlineKeyboard.push([
+                { text: `💎 ${cost} ➡️ 🏃 ${reward} Runs`, callback_data: `cityrun:redeem:${opt.id || opt.option_id || opt.coins_id}` }
+            ]);
+        }
+    }
+
+    if (profile.milestones && profile.milestones.length > 0) {
+        const unclaimed = profile.milestones.filter((m: any) => m.milestone_claimed === "0");
+        if (unclaimed.length > 0) {
+            inlineKeyboard.push([{ text: `🎁 Claim Mystery Box`, callback_data: `cityrun:claim:auto` }]);
+        }
+    }
+
+    inlineKeyboard.push([
+        { text: `🏃 ကစားမယ် (Play)`, url: `https://cityrun.pro/final_games/toh-toh-v78/?user_id=${profile.userId}&user_type=${profile.userType}&token=${session.authToken}` }
+    ]);
+    inlineKeyboard.push([
+        { text: `🔄 Refresh`, callback_data: `cityrun:refresh` }
+    ]);
+
+    return { msg, inlineKeyboard };
+}
+
+bot.hears(['🏃 City Run ကူပွန်', '🏃 City Run ဆော့ရန်', '💎 City Run Diamond Exchange'], async (ctx) => {
+    const sess = await getSession(ctx.from.id);
+    if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
+    
+    const waitMsg = await ctx.reply("⏳ City Run အချက်အလက်များ ယူနေပါတယ်...");
+    try {
+        const { profile, session } = await getValidCityRunData(ctx.from.id, sess.msisdn);
+        const { msg, inlineKeyboard } = generateCityRunDashboard(profile, session);
+        await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+        await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: inlineKeyboard } });
+    } catch (e: any) {
+        await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+        await ctx.reply(`❌ Error: ${e.message}`);
+    }
+});
+
+bot.action('cityrun:refresh', async (ctx) => {
+    await ctx.answerCbQuery("🔄 Refreshing...").catch(()=>{});
+    const sess = await getSession(ctx.from?.id);
+    if (!sess) return ctx.editMessageText("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။");
     
     try {
-        const profile = await authApiGet(ctx.from.id, `/mytmapi/v1/my/profile?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-        if (profile && profile.data) {
-            const dataStr = JSON.stringify(profile.data);
-            const match1 = dataStr.match(/"subscriber_?id"\s*:\s*"?(\d+)"?/i);
-            if (match1 && match1[1]) possibleIds.add(match1[1]);
-            const match2 = dataStr.match(/"accountId"\s*:\s*"?(\d+)"?/i);
-            if (match2 && match2[1]) possibleIds.add(match2[1]);
-        }
-    } catch(e) {}
-    
-    for (const pid of Array.from(possibleIds)) {
-        if (!pid) continue;
-        const len = pid.toString().length;
-        if (len >= 5 && len <= 7) {
-            sess.cityRunId = pid.toString();
-            await saveSession(ctx.from.id, sess);
-            return pid.toString();
-        }
+        const { profile, session } = await getValidCityRunData(ctx.from.id, sess.msisdn);
+        const { msg, inlineKeyboard } = generateCityRunDashboard(profile, session);
+        await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: inlineKeyboard } }).catch(()=>{});
+    } catch (e: any) {
+        await ctx.editMessageText(`❌ Error: ${e.message}`).catch(()=>{});
     }
-    
-    let bestId = sess.userId ? sess.userId.toString() : sess.msisdn;
-    sess.cityRunId = bestId;
-    await saveSession(ctx.from.id, sess);
-    return bestId;
-}
+});
 
-
-async function getCityRunSession(msisdn: string): Promise<string | undefined> {
-  try {
-    const res = await axios.get("https://cityrun.pro/ws/redirect/?AdNetwork=atom_app&ClickID=&Publisher=&msisdn=" + msisdn, {
-      httpsAgent: botHttpsAgent,
-      maxRedirects: 0,
-      validateStatus: () => true,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store"
-      }
-    });
-    const setCookie = res.headers['set-cookie'];
-    if (setCookie && setCookie.length > 0) {
-      const match = setCookie[0].match(/ci_session=([^;]+)/);
-      if (match) return match[1];
+const locks = new Set<string>();
+async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    if (locks.has(key)) {
+        throw new Error("လုပ်ဆောင်ချက်တစ်ခု လုပ်ဆောင်နေဆဲဖြစ်ပါသည်။ ခဏစောင့်ပေးပါ။ (Action in progress)");
     }
-  } catch (e) {}
-  return undefined;
-}
-
-
-async function cityRunPlayGame(ciSession: string) {
-  try {
-    await axios.get('https://cityrun.pro/playgame', {
-      httpsAgent: botHttpsAgent,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store",
-        "Cookie": "ci_session=" + ciSession
-      }
-    });
-  } catch (e) {}
-}
-
-
-async function getCityRunUserId(ctx: any, sess: any): Promise<string> {
-    if (sess.cityRunId && sess.cityRunId.toString().length >= 5 && sess.cityRunId.toString().length <= 7) { return sess.cityRunId.toString(); }
-    
-    let possibleIds = new Set<string>();
-    if (sess.subscriberId) possibleIds.add(sess.subscriberId.toString());
-    if (sess.accountId) possibleIds.add(sess.accountId.toString());
-    if (sess.userId) possibleIds.add(sess.userId.toString());
-    
+    locks.add(key);
     try {
-        const dashboard = await authApiGet(ctx.from.id, `/mytmapi/v1/my/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0`);
-        if (dashboard && dashboard.data) {
-            const dataStr = JSON.stringify(dashboard.data);
-            const match1 = dataStr.match(/"subscriber_?id"\s*:\s*"?(\d+)"?/i);
-            if (match1 && match1[1]) possibleIds.add(match1[1]);
-            const match2 = dataStr.match(/"accountId"\s*:\s*"?(\d+)"?/i);
-            if (match2 && match2[1]) possibleIds.add(match2[1]);
-        }
-    } catch(e) {}
-    
-    for (const pid of Array.from(possibleIds)) {
-        if (!pid) continue;
-        const len = pid.toString().length;
-        if (len >= 5 && len <= 7) {
-            sess.cityRunId = pid.toString();
-            await saveSession(ctx.from.id, sess);
-            return pid.toString();
-        }
+        return await fn();
+    } finally {
+        locks.delete(key);
     }
-    
-    let bestId = sess.userId ? sess.userId.toString() : sess.msisdn;
-    sess.cityRunId = bestId;
-    await saveSession(ctx.from.id, sess);
-    return bestId;
 }
 
-bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
-  const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
-  
-  const waitMsg = await ctx.reply("⏳ City Run အချက်အလက်များကို ရယူနေပါတယ်...");
-  
-  // Try to use the original subscriber ID or fallback to MSISDN base64
-  const subId = await getCityRunUserId(ctx, sess);
-  let b64UserId = Buffer.from(subId).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
-  
-  
-  // Use CI Session with getUserData
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  
-  // Retry if not found
-  if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
-     b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  }
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res && res.status === 'success' && res.data) {
-    const data = res.data || {};
-    const runs = Number(data.user_runs || 0);
-    const coins = data.user_coins ? Number(data.user_coins) : 0;
-    const userType = data.user_type ? data.user_type.toUpperCase() : 'SUBSCRIBER';
+bot.action(/cityrun:redeem:(.+)/, async (ctx) => {
+    const optionId = ctx.match[1];
+    const tgUserId = ctx.from.id;
     
-    // Mask ID slightly for display
-    const userIdDisplay = b64UserId.length >= 7 ? 
-      b64UserId.substring(0, 4) + "****" + b64UserId.substring(b64UserId.length - 3) : b64UserId;
+    await ctx.answerCbQuery("⏳ Processing...").catch(()=>{});
     
-    const milestones = data.milestones || [];
-    const totalMilestones = milestones.length;
-    const claimedMilestones = milestones.filter((m: any) => m.milestone_claimed === "1").length;
-    
-    let msg = "🏃 <b>City Run Profile</b>\n\n";
-    msg += "👤 <b>ID:</b> <code>" + userIdDisplay + "</code>\n";
-    msg += "👑 <b>Status:</b> " + userType + "\n";
-    msg += "💎 <b>Diamond:</b> " + (coins >= 1000 ? (coins / 1000).toFixed(1) + "K" : coins) + " (" + coins + ")\n";
-    msg += "🎟️ <b>Runs:</b> " + runs + "\n";
-    msg += "🎯 <b>Milestone:</b> " + claimedMilestones + "/" + totalMilestones + "\n\n";
-    
-    if (totalMilestones > 0 && claimedMilestones === totalMilestones) {
-       msg += "✅ <i>ယနေ့ Milestones Claim ပြီး — မနက်ဖြန် ပြန်ရမည်</i>";
-    } else {
-       msg += "⏳ <i>ယနေ့ Milestones " + (totalMilestones - claimedMilestones) + " ခု ယူရန်ကျန်သေးပါသည်</i>";
+    const sess = await getSession(tgUserId);
+    if (!sess) return ctx.editMessageText("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။");
+
+    try {
+        await withLock(`cityrun_lock:${tgUserId}`, async () => {
+            let { session, profile } = await getValidCityRunData(tgUserId, sess.msisdn);
+            
+            const option = profile.redemptionOptions.find((o: any) => o.id === optionId || o.option_id === optionId || o.coins_id === optionId);
+            if (!option) {
+                await ctx.reply("❌ Invalid redemption option.");
+                return;
+            }
+            
+            const cost = parseInt(option.coins_threshold_value || option.coins_required);
+            if (profile.diamonds < cost) {
+                await ctx.reply(`❌ <b>Insufficient Diamond</b>\n\nRequired: ${cost} 💎\nAvailable: ${profile.diamonds} 💎`, { parse_mode: 'HTML' });
+                return;
+            }
+            
+            await CityRunService.processCoinsRedemption(session, optionId);
+            profile = await CityRunService.getUserData(session);
+            
+            const reward = parseInt(option.coins_runs || option.runs_reward) || option.coins_runs || option.runs_reward;
+            
+            let successMsg = `✅ <b>Diamond Exchange Success</b>\n\n`;
+            successMsg += `💎 <b>Used:</b> ${cost}\n`;
+            successMsg += `🏃 <b>Received:</b> ${reward} Runs\n\n`;
+            successMsg += `💎 <b>Remaining:</b> ${profile.diamonds}\n`;
+            successMsg += `🏃 <b>Total Runs:</b> ${profile.runs}\n\n`;
+            successMsg += `🔄 Balance verified from server.`;
+            
+            await ctx.reply(successMsg, { parse_mode: 'HTML' });
+            
+            const { msg, inlineKeyboard } = generateCityRunDashboard(profile, session);
+            await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: inlineKeyboard } }).catch(()=>{});
+        });
+    } catch (e: any) {
+        await ctx.reply(`❌ Error: ${e.message}`);
     }
-    
-    await ctx.reply(msg, { parse_mode: 'HTML' });
-  } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။ (API Data မရရှိပါ)");
-  }
 });
 
-bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
-  const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
-  
-  const waitMsg = await ctx.reply("⏳ City Run အချက်အလက် ယူနေပါတယ်...");
-  const subId = await getCityRunUserId(ctx, sess);
-  let b64UserId = Buffer.from(subId).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
-  
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
-     b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  }
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res && res.status === 'success' && res.data) {
-    const runs = Number(res.data?.user_runs || 0);
-    if (runs <= 0) {
-      return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
+bot.action('cityrun:claim:auto', async (ctx) => {
+    const tgUserId = ctx.from.id;
+    await ctx.answerCbQuery("⏳ Processing...").catch(()=>{});
+    
+    const sess = await getSession(tgUserId);
+    if (!sess) return ctx.editMessageText("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။");
+
+    try {
+        await withLock(`cityrun_lock:${tgUserId}`, async () => {
+            let { session, profile } = await getValidCityRunData(tgUserId, sess.msisdn);
+            
+            if (!profile.milestones || profile.milestones.length === 0) {
+                await ctx.reply("❌ No milestones available.");
+                return;
+            }
+            
+            const thresholds = [6500, 4000, 2500, 1500];
+            let claimedSomething = false;
+            let lastError = null;
+            
+            for (const t of thresholds) {
+                const milestone = profile.milestones.find((m: any) => parseInt(m.threshold || m.milestone_threshold_value || m.milestone_score) === t);
+                if (milestone && milestone.milestone_claimed === "0") {
+                    try {
+                        const res = await CityRunService.claimMysteryBox(session, t);
+                        claimedSomething = true;
+                        
+                        let rewardText = "";
+                        if (res.milestone_reward_details && res.milestone_reward_details.length > 0) {
+                            const details = res.milestone_reward_details[0];
+                            rewardText = `💎 ${details.milestone_coins} | 🏃 ${details.milestone_runs}`;
+                        }
+                        await ctx.reply(`✅ <b>Milestone Claimed (${t})</b>\n\nReward: ${rewardText}`, { parse_mode: 'HTML' });
+                        break; 
+                    } catch (e: any) {
+                        lastError = e;
+                    }
+                }
+            }
+            
+            if (!claimedSomething) {
+                if (lastError) {
+                    await ctx.reply(`❌ Cannot claim any milestones right now. Game says: ${lastError.message}`);
+                } else {
+                    await ctx.reply("✅ All eligible milestones have already been claimed.");
+                }
+            } else {
+                profile = await CityRunService.getUserData(session);
+                const { msg, inlineKeyboard } = generateCityRunDashboard(profile, session);
+                await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: inlineKeyboard } }).catch(()=>{});
+            }
+        });
+    } catch (e: any) {
+        await ctx.reply(`❌ Error: ${e.message}`);
     }
-    
-    const buttons = [
-      [Markup.button.callback('🎮 ဂိမ်းစတင်ကစားမည် (Auto Play)', 'cityrun_play_auto_' + b64UserId)]
-    ];
-    
-    let replyMsg = "🏃 <b>City Run ဂိမ်းကစားရန်</b>\n\n🎟️ လက်ကျန်ကစားခွင့်: <b>" + runs + " ကြိမ်</b>\n\n<i>အောက်ပါ ခလုတ်ကို နှိပ်၍ ဂိမ်းစတင်ပါ။ (အဆင့် ၄ ခုစလုံးကို အချိန်စောင့်၍ အလိုအလျောက် ဆော့ကစားပေးပါမည်)</i>";
-    
-    await ctx.reply(replyMsg, {
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: buttons }
-    });
-  } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
-  }
-});
-
-bot.action(/cityrun_play_auto_(.+)/, async (ctx) => {
-  const sess = await getSession(ctx.from?.id);
-  if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
-  await ctx.answerCbQuery();
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const b64UserId = ctx.match[1];
-  
-  
-  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  if (!checkRes || checkRes.status !== 'success' || !checkRes.data) {
-    return ctx.editMessageText("❌ ဆာဗာအခက်အခဲကြောင့် ကစား၍မရသေးပါ။");
-  }
-  
-  const runs = Number(checkRes.data?.user_runs || 0);
-  if (runs <= 0) {
-    return ctx.editMessageText("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
-  }
-  
-  const waitMsg = await ctx.reply("🎮 <b>ဂိမ်းစတင်နေပါသည်...</b>", { parse_mode: 'HTML' });
-  
-  const milestones = checkRes.data?.milestones || [];
-  const unclaimedMilestones = milestones
-    .filter((m: any) => m.milestone_claimed === "0")
-    .map((m: any) => Number(m.milestone_threshold_value || m.milestone_score))
-    .sort((a: number, b: number) => a - b);
-    
-  if (unclaimedMilestones.length === 0) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-    return ctx.reply("❌ ရယူရန် ဆုမကျန်တော့ပါ။ အမြင့်ဆုံးဆုများ ရရှိထားပြီးဖြစ်ပါသည်။");
-  }
-
-  let totalCoins = 0;
-  let totalRuns = 0;
-  let lastScore = 0;
-
-  for (let i = 0; i < unclaimedMilestones.length; i++) {
-    const score = unclaimedMilestones[i];
-    let waitTime = 12000;
-    if (score === 1500) waitTime = 15000;
-    else if (score === 2500) waitTime = 10000;
-    else if (score === 4000) waitTime = 15000;
-    else if (score === 6500) waitTime = 25000;
-    
-    const stageNum = i + 1;
-    const progressText = "⏳ <b>Milestone (" + stageNum + "/" + unclaimedMilestones.length + ") ဆော့ကစားနေပါသည်...</b>\n🏃‍♂️ ရည်မှန်းချက် အမှတ် (Score: " + score + ")\n⏱️ စောင့်ဆိုင်းရန် (ခန့်မှန်း " + Math.ceil(waitTime/1000) + " စက္ကန့်)...";
-    
-    await ctx.telegram.editMessageText(
-      ctx.chat.id, 
-      waitMsg.message_id, 
-      undefined, 
-      progressText, 
-      { parse_mode: 'HTML' }
-    ).catch(() => {});
-    
-    await new Promise(r => setTimeout(r, waitTime));
-    
-    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score });
-    lastScore = score;
-    
-    if (claimRes && claimRes.status === 'success') {
-      if (claimRes.milestone_reward_details && claimRes.milestone_reward_details.length > 0) {
-        totalCoins += Number(claimRes.milestone_reward_details[0].milestone_coins || 0);
-        totalRuns += Number(claimRes.milestone_reward_details[0].milestone_runs || 0);
-      }
-    } else {
-       break;
-    }
-  }
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (totalCoins > 0 || totalRuns > 0) {
-    const successText = "🎉 <b>ဂုဏ်ယူပါတယ်။ ဂိမ်းကစားခြင်း ပြီးဆုံးပါပြီ။ (အမြင့်ဆုံးအမှတ် - " + lastScore + ")</b>\n\n💰 ရရှိသော Diamond စုစုပေါင်း: <b>" + totalCoins + "</b>\n🎟️ ရရှိသော ကစားခွင့် စုစုပေါင်း: <b>" + totalRuns + " ကြိမ်</b>";
-    await ctx.editMessageText(successText, { parse_mode: 'HTML' });
-  } else {
-    await ctx.editMessageText("❌ ဆုရယူရာတွင် အခက်အခဲရှိခဲ့ပါသည်။ ပြန်လည်ကြိုးစားကြည့်ပါ။");
-  }
-});
-
-bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
-  const sess = await getSession(ctx.from.id);
-  if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ。", getMainKeyboard(false));
-  
-  const waitMsg = await ctx.reply("⏳ City Run Diamond Exchange အချက်အလက် ယူနေပါတယ်...");
-  const subId = await getCityRunUserId(ctx, sess);
-  let b64UserId = Buffer.from(subId).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
-  
-  let res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  if ((!res || res.status !== 'success' || !res.data) && sess.userId && sess.userId.toString() !== sess.msisdn) {
-     b64UserId = Buffer.from(sess.msisdn).toString('base64');
-     res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession);
-  }
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res && res.status === 'success' && res.data) {
-    const coins = Number(res.data?.user_coins || 0);
-    const redemptionOptions = res.data?.coins_redemption || [];
-    
-    if (redemptionOptions.length === 0) {
-      return ctx.reply("❌ လဲလှယ်နိုင်သော ဆုလက်ဆောင်များ မရှိပါ။");
-    }
-    
-    let msg = "💎 <b>City Run Diamond Exchange</b>\n\n";
-    const fDia = coins >= 1000 ? (coins / 1000).toFixed(1) + "K" : coins;
-    msg += "💰 လက်ရှိ Diamond: <b>" + fDia + " (" + coins + ")</b>\n\n";
-    msg += "<i>လဲလှယ်လိုသော ဆုလက်ဆောင်ကို ရွေးချယ်ပါ:</i>";
-    
-    const buttons = [];
-    
-    if (coins >= 100) {
-       buttons.push([Markup.button.callback('🔄 Auto Max Exchange (ရှိသမျှအကုန်လဲမည်)', 'cityrun_exchange_auto_' + b64UserId)]);
-    }
-
-    redemptionOptions.forEach((opt: any) => {
-      let desc = '';
-      if (opt.coins_runs > 0) desc = opt.coins_runs + " Runs";
-      else if (opt.coins_datapack_value !== "0") desc = opt.coins_datapack_value + " Data";
-      else if (opt.coins_talktime_value !== "0") desc = opt.coins_talktime_value + " Talktime";
-      
-      const threshold = Number(opt.coins_threshold_value);
-      if (coins >= threshold) {
-         const text = "💎 " + threshold + " Diamond ➔ " + desc;
-         buttons.push([Markup.button.callback(text, "cityrun_exchange_" + b64UserId + "_" + opt.coins_id)]);
-      }
-    });
-    
-    if (buttons.length === 0) {
-       msg += "\n\n⚠️ လဲလှယ်ရန် Diamond မလုံလောက်သေးပါ။ အနည်းဆုံး 100 လိုအပ်ပါသည်။";
-    }
-
-    await ctx.reply(msg, {
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: buttons }
-    });
-  } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
-  }
-});
-
-bot.action(/cityrun_exchange_auto_(.+)/, async (ctx) => {
-  const sess = await getSession(ctx.from?.id);
-  if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
-  await ctx.answerCbQuery();
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const waitMsg = await ctx.reply("⏳ ရှိသမျှ Diamond များကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
-  const b64UserId = ctx.match[1];
-  
-  
-  let totalSpent = 0;
-  let totalRunsGained = 0;
-  let keepRedeeming = true;
-  
-  while (keepRedeeming) {
-    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
-    if (!dataRes || dataRes.status !== 'success' || !dataRes.data) break;
-    
-    let currentCoins = Number(dataRes.data?.user_coins || 0);
-    const options = dataRes.data?.coins_redemption || [];
-    
-    const affordableOptions = options
-      .filter((o: any) => Number(o.coins_runs) > 0 && currentCoins >= Number(o.coins_threshold_value))
-      .sort((a: any, b: any) => Number(b.coins_threshold_value) - Number(a.coins_threshold_value));
-      
-    if (affordableOptions.length === 0) {
-      keepRedeeming = false;
-      break;
-    }
-    
-    const bestOption = affordableOptions[0];
-    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id });
-    
-    if (redeemRes && redeemRes.status === 'success') {
-       totalSpent += Number(bestOption.coins_threshold_value);
-       totalRunsGained += Number(bestOption.coins_runs);
-    } else {
-       keepRedeeming = false;
-    }
-  }
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (totalSpent > 0) {
-    const exchangeText = "🎉 <b>အလိုအလျောက် လဲလှယ်ခြင်း ပြီးဆုံးပါပြီ။</b>\n\n💰 အသုံးပြုခဲ့သော Diamond: <b>" + totalSpent + "</b>\n🎟️ ရရှိသော ကစားခွင့်စုစုပေါင်း: <b>" + totalRunsGained + " ကြိမ်</b>";
-    await ctx.editMessageText(exchangeText, { parse_mode: 'HTML' });
-  } else {
-    await ctx.editMessageText("❌ လဲလှယ်ရန် Diamond မလုံလောက်ပါ။");
-  }
-});
-
-bot.action(/cityrun_exchange_([^_]+)_(.+)/, async (ctx) => {
-  const b64UserId = ctx.match[1];
-  const optionId = ctx.match[2];
-  const sess = await getSession(ctx.from?.id);
-  if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
-  await ctx.answerCbQuery();
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const waitMsg = await ctx.reply("⏳ ဆုလက်ဆောင် လဲလှယ်နေပါသည်...");
-  
-  
-  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId });
-  
-  await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-  
-  if (res && res.status === 'success') {
-    const successMsg = "🎉 <b>ဆုလက်ဆောင် လဲလှယ်ခြင်း အောင်မြင်ပါသည်။</b>\n\n" + (res.description || "Reward sent to user");
-    await ctx.editMessageText(successMsg, { parse_mode: 'HTML' });
-  } else {
-    const errorMsg = res?.message || res?.description || "လဲလှယ်ရန် Diamond မလုံလောက်ပါ။";
-    await ctx.editMessageText("❌ " + errorMsg);
-  }
 });
 
 // ==========================================
