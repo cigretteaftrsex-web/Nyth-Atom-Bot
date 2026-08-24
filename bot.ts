@@ -1188,6 +1188,14 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/campaign-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
+  // Extra endpoints to trigger Daily Point Checkin initialization on ATOM side
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/check-in?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/daily-checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/checkin-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/checkin-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  
   let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
   if (listRes?._authFailed) {
@@ -1220,9 +1228,12 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
       if (item.status === 1 || item.isClaimable === true) return true;
       if (str.includes('claimable') || str.includes('ready to claim')) return true;
 
-      // ATOM sometimes marks the daily point item with action/button label
+            // ATOM sometimes marks the daily point item with action/button label
       if (item.action === 'Claim' || item.buttonText === 'Claim' || item.button_text === 'Claim' || item.buttonText === 'ရယူမည်') return true;
-
+      
+      // RELAXED CHECK: If it has point info and isn't claimed, assume it's claimable (as we filtered out claimed above)
+      if (item.point || item.points || item.pointAmount || item.amount || item.reward || item.value) return true;
+      
       return false; // Stricter checking so we don't accidentally get an unclaimable point
     });
     
@@ -1310,23 +1321,62 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 });
 
-async function cityRunApiPost(endpoint: string, body: any) {
+async function getCityRunSession(msisdn: string): Promise<string | null> {
   try {
+    const res = await axios.get("https://cityrun.pro/ws/redirect/?AdNetwork=atom_app&ClickID=&Publisher=&msisdn=" + msisdn, {
+      httpsAgent: botHttpsAgent,
+      maxRedirects: 0,
+      validateStatus: () => true,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
+        "X-Requested-With": "mm.com.atom.store"
+      }
+    });
+    const setCookie = res.headers['set-cookie'];
+    if (setCookie && setCookie.length > 0) {
+      const match = setCookie[0].match(/ci_session=([^;]+)/);
+      if (match) return match[1];
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function cityRunPlayGame(ciSession: string) {
+  try {
+    await axios.get('https://cityrun.pro/playgame', {
+      httpsAgent: botHttpsAgent,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
+        "X-Requested-With": "mm.com.atom.store",
+        "Cookie": "ci_session=" + ciSession
+      }
+    });
+  } catch (e) {}
+}
+
+async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
+  try {
+    const headers: any = {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "AUTH-TOKEN": "YXRvbUdhbWVzQVBJX1NaMDAwMTpBIzlLIVF4UjckUDlAMg==",
+      "Origin": "https://cityrun.pro",
+      "X-Requested-With": "mm.com.atom.store",
+    };
+    if (ciSession) {
+      headers["Cookie"] = "ci_session=" + ciSession;
+    }
     const res = await axios({
       httpsAgent: botHttpsAgent,
       method: "POST",
-      url: `https://cityrun.pro${endpoint}`,
+      url: "https://cityrun.pro" + endpoint,
       data: body,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "Accept": "*/*",
-        "Content-Type": "application/json",
-        "AUTH-TOKEN": "YXRvbUdhbWVzQVBJX1NaMDAwMTpBIzlLIVF4UjckUDlAMg==",
-        "Origin": "https://cityrun.pro",
-        "X-Requested-With": "mm.com.atom.store",
-      },
+      headers,
       validateStatus: () => true,
-      timeout: 10000
+      timeout: 15000
     });
     return res.data;
   } catch (e) {
@@ -1340,7 +1390,9 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run ကူပွန် စစ်ဆေးနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
+  const ciSession = await getCityRunSession(sess.msisdn);
+  
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1348,9 +1400,9 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
     const runs = res.data?.user_runs || 0;
     const coins = res.data?.user_coins || 0;
     
-    let msg = `🏃 <b>City Run အချက်အလက်</b>\n\n`;
-    msg += `🎟️ ကစားခွင့် (Runs): <b>${runs} ကြိမ်</b>\n`;
-    msg += `💰 ဒင်္ဂါး (Coins): <b>${coins} ပြား</b>`;
+    let msg = "🏃 <b>City Run အချက်အလက်</b>\n\n";
+    msg += "🎟️ ကစားခွင့် (Runs): <b>" + runs + " ကြိမ်</b>\n";
+    msg += "💰 ဒင်္ဂါး (Coins): <b>" + coins + " ပြား</b>";
     
     await ctx.reply(msg, { parse_mode: 'HTML' });
   } else {
@@ -1364,7 +1416,8 @@ bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run အချက်အလက် ယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
+  const ciSession = await getCityRunSession(sess.msisdn);
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1374,20 +1427,13 @@ bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
       return ctx.reply("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
     }
     
-    // Automatically find the highest UNCLAIMED milestone from API data
-    const milestones = res.data?.milestones || [];
-    const availableMilestones = milestones
-      .filter((m: any) => m.milestone_claimed === "0")
-      .map((m: any) => Number(m.milestone_score))
-      .sort((a: number, b: number) => b - a); // Sort descending
-
-    const highestEligible = availableMilestones.length > 0 ? availableMilestones[0] : 6500;
-
     const buttons = [
-      [Markup.button.callback(`🏆 Auto Play (Max Reward: ${highestEligible})`, `cityrun_play_${highestEligible}`)]
+      [Markup.button.callback('🎮 ဂိမ်းစတင်ကစားမည် (Auto Play)', 'cityrun_play_auto')]
     ];
     
-    await ctx.reply(`🏃 <b>City Run ဂိမ်းကစားရန်</b>\n\n🎟️ လက်ကျန်ကစားခွင့်: <b>${runs}</b>\n⭐ သင်ရနိုင်သော အမြင့်ဆုံးအမှတ်: <b>${highestEligible}</b>\n\n<i>အောက်ပါ ခလုတ်ကို နှိပ်၍ အမြင့်ဆုံးဆုကို တိုက်ရိုက်ရယူပါ။</i>`, {
+    let replyMsg = "🏃 <b>City Run ဂိမ်းကစားရန်</b>\n\n🎟️ လက်ကျန်ကစားခွင့်: <b>" + runs + " ကြိမ်</b>\n\n<i>အောက်ပါ ခလုတ်ကို နှိပ်၍ ဂိမ်းစတင်ပါ။ (အဆင့် ၄ ခုစလုံးကို အချိန်စောင့်၍ အလိုအလျောက် ဆော့ကစားပေးပါမည်)</i>";
+    
+    await ctx.reply(replyMsg, {
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: buttons }
     });
@@ -1396,45 +1442,87 @@ bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
   }
 });
 
-bot.action(/cityrun_play_(\d+)/, async (ctx) => {
-  const baseScore = Number(ctx.match[1]);
+bot.action('cityrun_play_auto', async (ctx) => {
   const sess = await getSession(ctx.from?.id);
   if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
   
   await ctx.answerCbQuery();
   
-  // Anti-Cheat: Read API to ensure we don't claim an already claimed milestone
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
-  if (checkRes && checkRes.status === 'success') {
-    const milestones = checkRes.data?.milestones || [];
-    const isAlreadyClaimed = milestones.some((m: any) => Number(m.milestone_score) === baseScore && m.milestone_claimed === "1");
-    if (isAlreadyClaimed) {
-       return ctx.editMessageText("❌ ထိုအမှတ်အတွက် ဆုယူပြီးသွားပါပြီ။ အခြားအမှတ်ကို ရွေးချယ်ပါ။");
-    }
+  const ciSession = await getCityRunSession(sess.msisdn);
+  
+  if (ciSession) {
+    await cityRunPlayGame(ciSession);
+  }
+  
+  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  if (!checkRes || checkRes.status !== 'success') {
+    return ctx.editMessageText("❌ ဆာဗာအခက်အခဲကြောင့် ကစား၍မရသေးပါ။");
+  }
+  
+  const runs = Number(checkRes.data?.user_runs || 0);
+  if (runs <= 0) {
+    return ctx.editMessageText("❌ လက်ကျန် ကစားခွင့် မရှိတော့ပါ ။");
+  }
+  
+  const waitMsg = await ctx.reply("🎮 <b>ဂိမ်းစတင်နေပါသည်...</b>", { parse_mode: 'HTML' });
+  
+  const milestones = checkRes.data?.milestones || [];
+  const unclaimedMilestones = milestones
+    .filter((m: any) => m.milestone_claimed === "0")
+    .map((m: any) => Number(m.milestone_score))
+    .sort((a: number, b: number) => a - b);
+    
+  if (unclaimedMilestones.length === 0) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    return ctx.reply("❌ ရယူရန် ဆုမကျန်တော့ပါ။ အမြင့်ဆုံးဆုများ ရရှိထားပြီးဖြစ်ပါသည်။");
   }
 
-  // Randomize score slightly above the milestone to avoid API detection (add 2 to 18 points)
-  const randomOffset = Math.floor(Math.random() * 17) + 2;
-  const finalScore = baseScore + randomOffset;
-  
-  const waitMsg = await ctx.reply(`⏳ ဂိမ်းကစားနေပါသည်... (Score: ${finalScore})`);
-  
-  const res = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: finalScore });
+  let totalCoins = 0;
+  let totalRuns = 0;
+  let lastScore = 0;
+
+  for (let i = 0; i < unclaimedMilestones.length; i++) {
+    const score = unclaimedMilestones[i];
+    let waitTime = 12000;
+    if (score === 1500) waitTime = 15000;
+    else if (score === 2500) waitTime = 10000;
+    else if (score === 4000) waitTime = 15000;
+    else if (score === 6500) waitTime = 25000;
+    
+    const stageNum = i + 1;
+    const progressText = "⏳ <b>အဆင့် (" + stageNum + "/" + unclaimedMilestones.length + ") ဆော့ကစားနေပါသည်...</b>\n🏃‍♂️ ရည်မှန်းချက် အမှတ် (Score: " + score + ")\n⏱️ စောင့်ဆိုင်းရန် (ခန့်မှန်း " + Math.ceil(waitTime/1000) + " စက္ကန့်)...";
+    
+    await ctx.telegram.editMessageText(
+      ctx.chat.id, 
+      waitMsg.message_id, 
+      undefined, 
+      progressText, 
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+    
+    await new Promise(r => setTimeout(r, waitTime));
+    
+    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score }, ciSession || undefined);
+    lastScore = score;
+    
+    if (claimRes && claimRes.status === 'success') {
+      if (claimRes.milestone_reward_details && claimRes.milestone_reward_details.length > 0) {
+        totalCoins += Number(claimRes.milestone_reward_details[0].milestone_coins || 0);
+        totalRuns += Number(claimRes.milestone_reward_details[0].milestone_runs || 0);
+      }
+    } else {
+       break;
+    }
+  }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
-  if (res && res.status === 'success') {
-    let coins = 0;
-    let runs = 0;
-    if (res.milestone_reward_details && res.milestone_reward_details.length > 0) {
-      coins = res.milestone_reward_details[0].milestone_coins || 0;
-      runs = res.milestone_reward_details[0].milestone_runs || 0;
-    }
-    await ctx.editMessageText(`🎉 <b>ဂုဏ်ယူပါတယ်။ ဂိမ်းကစားခြင်း အောင်မြင်ပါသည်။</b>\n\n💰 ရရှိသော ဒင်္ဂါး: <b>${coins} ပြား</b>\n🎟️ ရရှိသော ကစားခွင့်: <b>${runs} ကြိမ်</b>`, { parse_mode: 'HTML' });
+  if (totalCoins > 0 || totalRuns > 0) {
+    const successText = "🎉 <b>ဂုဏ်ယူပါတယ်။ ဂိမ်းကစားခြင်း ပြီးဆုံးပါပြီ။ (အမြင့်ဆုံးအမှတ် - " + lastScore + ")</b>\n\n💰 ရရှိသော ဒင်္ဂါး စုစုပေါင်း: <b>" + totalCoins + " ပြား</b>\n🎟️ ရရှိသော ကစားခွင့် စုစုပေါင်း: <b>" + totalRuns + " ကြိမ်</b>";
+    await ctx.editMessageText(successText, { parse_mode: 'HTML' });
   } else {
-    const errorMsg = res?.message || res?.description || "ကစားခွင့် မကျန်တော့ပါ။ (သို့) ကစားပြီးသွားပါပြီ။";
-    await ctx.editMessageText(`❌ ${errorMsg}`);
+    await ctx.editMessageText("❌ ဆုရယူရာတွင် အခက်အခဲရှိခဲ့ပါသည်။ ပြန်လည်ကြိုးစားကြည့်ပါ။");
   }
 });
 
@@ -1444,7 +1532,9 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run Diamond Exchange အချက်အလက် ယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
+  const ciSession = await getCityRunSession(sess.msisdn);
+  
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1456,11 +1546,10 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
       return ctx.reply("❌ လဲလှယ်နိုင်သော ဆုလက်ဆောင်များ မရှိပါ။");
     }
     
-    let msg = `💎 <b>City Run Diamond Exchange</b>\n\n`;
-    msg += `💰 လက်ရှိ ဒင်္ဂါး (Coins): <b>${coins} ပြား</b>\n\n`;
-    msg += `<i>လဲလှယ်လိုသော ဆုလက်ဆောင်ကို ရွေးချယ်ပါ:</i>`;
+    let msg = "💎 <b>City Run Diamond Exchange</b>\n\n";
+    msg += "💰 လက်ရှိ ဒင်္ဂါး (Coins): <b>" + coins + " ပြား</b>\n\n";
+    msg += "<i>လဲလှယ်လိုသော ဆုလက်ဆောင်ကို ရွေးချယ်ပါ:</i>";
     
-    // Auto-calculate best exchange based on available coins
     const buttons = [];
     
     if (coins >= 100) {
@@ -1469,20 +1558,19 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
 
     redemptionOptions.forEach((opt: any) => {
       let desc = '';
-      if (opt.coins_runs > 0) desc = `${opt.coins_runs} Runs`;
-      else if (opt.coins_datapack_value !== "0") desc = `${opt.coins_datapack_value} Data`;
-      else if (opt.coins_talktime_value !== "0") desc = `${opt.coins_talktime_value} Talktime`;
+      if (opt.coins_runs > 0) desc = opt.coins_runs + " Runs";
+      else if (opt.coins_datapack_value !== "0") desc = opt.coins_datapack_value + " Data";
+      else if (opt.coins_talktime_value !== "0") desc = opt.coins_talktime_value + " Talktime";
       
       const threshold = Number(opt.coins_threshold_value);
-      // Only show options user can afford
       if (coins >= threshold) {
-         const text = `💎 ${desc} - ${threshold} Coins`;
-         buttons.push([Markup.button.callback(text, `cityrun_exchange_${opt.coins_id}`)]);
+         const text = "💎 " + desc + " - " + threshold + " Coins";
+         buttons.push([Markup.button.callback(text, "cityrun_exchange_" + opt.coins_id)]);
       }
     });
     
     if (buttons.length === 0) {
-       msg += `\n\n⚠️ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်သေးပါ။ အနည်းဆုံး 100 ပြား လိုအပ်ပါသည်။`;
+       msg += "\n\n⚠️ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်သေးပါ။ အနည်းဆုံး 100 ပြား လိုအပ်ပါသည်။";
     }
 
     await ctx.reply(msg, {
@@ -1501,19 +1589,19 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ရှိသမျှဒင်္ဂါးများကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
+  const ciSession = await getCityRunSession(sess.msisdn);
   
   let totalSpent = 0;
   let totalRunsGained = 0;
   let keepRedeeming = true;
   
   while (keepRedeeming) {
-    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
+    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
     if (!dataRes || dataRes.status !== 'success') break;
     
     let currentCoins = Number(dataRes.data?.user_coins || 0);
     const options = dataRes.data?.coins_redemption || [];
     
-    // Filter options to those granting runs, and sort by highest threshold first
     const affordableOptions = options
       .filter((o: any) => Number(o.coins_runs) > 0 && currentCoins >= Number(o.coins_threshold_value))
       .sort((a: any, b: any) => Number(b.coins_threshold_value) - Number(a.coins_threshold_value));
@@ -1523,28 +1611,28 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
       break;
     }
     
-    // Pick the most expensive valid option
     const bestOption = affordableOptions[0];
-    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id });
+    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id }, ciSession || undefined);
     
     if (redeemRes && redeemRes.status === 'success') {
        totalSpent += Number(bestOption.coins_threshold_value);
        totalRunsGained += Number(bestOption.coins_runs);
     } else {
-       keepRedeeming = false; // Stop on error to prevent loops
+       keepRedeeming = false;
     }
   }
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (totalSpent > 0) {
-    await ctx.editMessageText(`🎉 <b>အလိုအလျောက် လဲလှယ်ခြင်း ပြီးဆုံးပါပြီ။</b>\n\n💰 အသုံးပြုခဲ့သော ဒင်္ဂါး: <b>${totalSpent} ပြား</b>\n🎟️ ရရှိသော ကစားခွင့်စုစုပေါင်း: <b>${totalRunsGained} ကြိမ်</b>`, { parse_mode: 'HTML' });
+    const exchangeText = "🎉 <b>အလိုအလျောက် လဲလှယ်ခြင်း ပြီးဆုံးပါပြီ။</b>\n\n💰 အသုံးပြုခဲ့သော ဒင်္ဂါး: <b>" + totalSpent + " ပြား</b>\n🎟️ ရရှိသော ကစားခွင့်စုစုပေါင်း: <b>" + totalRunsGained + " ကြိမ်</b>";
+    await ctx.editMessageText(exchangeText, { parse_mode: 'HTML' });
   } else {
-    await ctx.editMessageText(`❌ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်ပါ။`);
+    await ctx.editMessageText("❌ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်ပါ။");
   }
 });
 
-bot.action(/cityrun_exchange_(\d+)/, async (ctx) => {
+bot.action(/cityrun_exchange_(d+)/, async (ctx) => {
   const optionId = ctx.match[1];
   const sess = await getSession(ctx.from?.id);
   if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
@@ -1553,17 +1641,20 @@ bot.action(/cityrun_exchange_(\d+)/, async (ctx) => {
   const waitMsg = await ctx.reply("⏳ ဆုလက်ဆောင် လဲလှယ်နေပါသည်...");
   
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId });
+  const ciSession = await getCityRunSession(sess.msisdn);
+  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId }, ciSession || undefined);
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res && res.status === 'success') {
-    await ctx.editMessageText(`🎉 <b>ဆုလက်ဆောင် လဲလှယ်ခြင်း အောင်မြင်ပါသည်။</b>\n\n${res.description || "Reward sent to user"}`, { parse_mode: 'HTML' });
+    const successMsg = "🎉 <b>ဆုလက်ဆောင် လဲလှယ်ခြင်း အောင်မြင်ပါသည်။</b>\n\n" + (res.description || "Reward sent to user");
+    await ctx.editMessageText(successMsg, { parse_mode: 'HTML' });
   } else {
     const errorMsg = res?.message || res?.description || "လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်ပါ။";
-    await ctx.editMessageText(`❌ ${errorMsg}`);
+    await ctx.editMessageText("❌ " + errorMsg);
   }
 });
+
 // ==========================================
 // 🛠️ ADMIN PANEL (BULLETPROOF ROUTER EDITION)
 
