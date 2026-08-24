@@ -1388,7 +1388,7 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   const sess = await getSession(ctx.from.id);
   if (!sess) return ctx.reply("❌ အရင်ဆုံး အကောင့်ဝင်ပေးပါဦးဗျ။", getMainKeyboard(false));
   
-  const waitMsg = await ctx.reply("⏳ City Run ကူပွန် စစ်ဆေးနေပါတယ်...");
+  const waitMsg = await ctx.reply("⏳ City Run အချက်အလက်များကို ရယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
   const ciSession = await getCityRunSession(sess.msisdn);
   
@@ -1397,16 +1397,34 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (res && res.status === 'success') {
-    const runs = res.data?.user_runs || 0;
-    const coins = res.data?.user_coins || 0;
+    const data = res.data || {};
+    const runs = Number(data.user_runs || 0);
+    const coins = data.user_coins ? Number(data.user_coins) : 0;
+    const userType = data.user_type ? data.user_type.toUpperCase() : 'SUBSCRIBER';
     
-    let msg = "🏃 <b>City Run အချက်အလက်</b>\n\n";
-    msg += "🎟️ ကစားခွင့် (Runs): <b>" + runs + " ကြိမ်</b>\n";
-    msg += "💰 ဒင်္ဂါး (Coins): <b>" + coins + " ပြား</b>";
+    const userIdDisplay = b64UserId.length >= 7 ? 
+      b64UserId.substring(0, 4) + "****" + b64UserId.substring(b64UserId.length - 3) : b64UserId;
+    
+    const milestones = data.milestones || [];
+    const totalMilestones = milestones.length;
+    const claimedMilestones = milestones.filter((m: any) => m.milestone_claimed === "1").length;
+    
+    let msg = "🏃 <b>City Run Profile</b>\n\n";
+    msg += "👤 <b>ID:</b> <code>" + userIdDisplay + "</code> (<code>" + b64UserId + "</code>)\n";
+    msg += "👑 <b>Status:</b> " + userType + "\n";
+    msg += "💎 <b>Diamond:</b> " + (coins >= 1000 ? (coins / 1000).toFixed(1) + "K" : coins) + "\n";
+    msg += "🎟️ <b>Runs:</b> " + runs + "\n";
+    msg += "🎯 <b>Milestone:</b> " + claimedMilestones + "/" + totalMilestones + "\n\n";
+    
+    if (totalMilestones > 0 && claimedMilestones === totalMilestones) {
+       msg += "✅ <i>ယနေ့ Milestones Claim ပြီး — မနက်ဖြန် ပြန်ရမည်</i>";
+    } else {
+       msg += "⏳ <i>ယနေ့ Milestones " + (totalMilestones - claimedMilestones) + " ခု ယူရန်ကျန်သေးပါသည်</i>";
+    }
     
     await ctx.reply(msg, { parse_mode: 'HTML' });
   } else {
-    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။");
+    await ctx.reply("❌ ဆာဗာအခက်အခဲကြောင့် ခဏနေမှ ပြန်ကြိုးစားပေးပါဗျ။ (API Data မရရှိပါ)");
   }
 });
 
@@ -1470,7 +1488,7 @@ bot.action('cityrun_play_auto', async (ctx) => {
   const milestones = checkRes.data?.milestones || [];
   const unclaimedMilestones = milestones
     .filter((m: any) => m.milestone_claimed === "0")
-    .map((m: any) => Number(m.milestone_score))
+    .map((m: any) => Number(m.milestone_threshold_value || m.milestone_score))
     .sort((a: number, b: number) => a - b);
     
   if (unclaimedMilestones.length === 0) {
@@ -1491,7 +1509,7 @@ bot.action('cityrun_play_auto', async (ctx) => {
     else if (score === 6500) waitTime = 25000;
     
     const stageNum = i + 1;
-    const progressText = "⏳ <b>အဆင့် (" + stageNum + "/" + unclaimedMilestones.length + ") ဆော့ကစားနေပါသည်...</b>\n🏃‍♂️ ရည်မှန်းချက် အမှတ် (Score: " + score + ")\n⏱️ စောင့်ဆိုင်းရန် (ခန့်မှန်း " + Math.ceil(waitTime/1000) + " စက္ကန့်)...";
+    const progressText = "⏳ <b>Milestone (" + stageNum + "/" + unclaimedMilestones.length + ") ဆော့ကစားနေပါသည်...</b>\n🏃‍♂️ ရည်မှန်းချက် အမှတ် (Score: " + score + ")\n⏱️ စောင့်ဆိုင်းရန် (ခန့်မှန်း " + Math.ceil(waitTime/1000) + " စက္ကန့်)...";
     
     await ctx.telegram.editMessageText(
       ctx.chat.id, 
@@ -1519,7 +1537,7 @@ bot.action('cityrun_play_auto', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (totalCoins > 0 || totalRuns > 0) {
-    const successText = "🎉 <b>ဂုဏ်ယူပါတယ်။ ဂိမ်းကစားခြင်း ပြီးဆုံးပါပြီ။ (အမြင့်ဆုံးအမှတ် - " + lastScore + ")</b>\n\n💰 ရရှိသော ဒင်္ဂါး စုစုပေါင်း: <b>" + totalCoins + " ပြား</b>\n🎟️ ရရှိသော ကစားခွင့် စုစုပေါင်း: <b>" + totalRuns + " ကြိမ်</b>";
+    const successText = "🎉 <b>ဂုဏ်ယူပါတယ်။ ဂိမ်းကစားခြင်း ပြီးဆုံးပါပြီ။ (အမြင့်ဆုံးအမှတ် - " + lastScore + ")</b>\n\n💰 ရရှိသော Diamond စုစုပေါင်း: <b>" + totalCoins + "</b>\n🎟️ ရရှိသော ကစားခွင့် စုစုပေါင်း: <b>" + totalRuns + " ကြိမ်</b>";
     await ctx.editMessageText(successText, { parse_mode: 'HTML' });
   } else {
     await ctx.editMessageText("❌ ဆုရယူရာတွင် အခက်အခဲရှိခဲ့ပါသည်။ ပြန်လည်ကြိုးစားကြည့်ပါ။");
@@ -1547,7 +1565,8 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
     }
     
     let msg = "💎 <b>City Run Diamond Exchange</b>\n\n";
-    msg += "💰 လက်ရှိ ဒင်္ဂါး (Coins): <b>" + coins + " ပြား</b>\n\n";
+    const fDia = coins >= 1000 ? (coins / 1000).toFixed(1) + "K" : coins;
+    msg += "💰 လက်ရှိ Diamond: <b>" + fDia + " (" + coins + ")</b>\n\n";
     msg += "<i>လဲလှယ်လိုသော ဆုလက်ဆောင်ကို ရွေးချယ်ပါ:</i>";
     
     const buttons = [];
@@ -1564,13 +1583,13 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
       
       const threshold = Number(opt.coins_threshold_value);
       if (coins >= threshold) {
-         const text = "💎 " + desc + " - " + threshold + " Coins";
+         const text = "💎 " + threshold + " Diamond ➔ " + desc;
          buttons.push([Markup.button.callback(text, "cityrun_exchange_" + opt.coins_id)]);
       }
     });
     
     if (buttons.length === 0) {
-       msg += "\n\n⚠️ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်သေးပါ။ အနည်းဆုံး 100 ပြား လိုအပ်ပါသည်။";
+       msg += "\n\n⚠️ လဲလှယ်ရန် Diamond မလုံလောက်သေးပါ။ အနည်းဆုံး 100 လိုအပ်ပါသည်။";
     }
 
     await ctx.reply(msg, {
@@ -1587,7 +1606,7 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
   if (!sess) return ctx.answerCbQuery("❌ အကောင့်ဝင်ရန်လိုအပ်ပါတယ်။", { show_alert: true });
   
   await ctx.answerCbQuery();
-  const waitMsg = await ctx.reply("⏳ ရှိသမျှဒင်္ဂါးများကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
+  const waitMsg = await ctx.reply("⏳ ရှိသမျှ Diamond များကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
   const ciSession = await getCityRunSession(sess.msisdn);
   
@@ -1625,10 +1644,10 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
   if (totalSpent > 0) {
-    const exchangeText = "🎉 <b>အလိုအလျောက် လဲလှယ်ခြင်း ပြီးဆုံးပါပြီ။</b>\n\n💰 အသုံးပြုခဲ့သော ဒင်္ဂါး: <b>" + totalSpent + " ပြား</b>\n🎟️ ရရှိသော ကစားခွင့်စုစုပေါင်း: <b>" + totalRunsGained + " ကြိမ်</b>";
+    const exchangeText = "🎉 <b>အလိုအလျောက် လဲလှယ်ခြင်း ပြီးဆုံးပါပြီ။</b>\n\n💰 အသုံးပြုခဲ့သော Diamond: <b>" + totalSpent + "</b>\n🎟️ ရရှိသော ကစားခွင့်စုစုပေါင်း: <b>" + totalRunsGained + " ကြိမ်</b>";
     await ctx.editMessageText(exchangeText, { parse_mode: 'HTML' });
   } else {
-    await ctx.editMessageText("❌ လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်ပါ။");
+    await ctx.editMessageText("❌ လဲလှယ်ရန် Diamond မလုံလောက်ပါ။");
   }
 });
 
@@ -1650,7 +1669,7 @@ bot.action(/cityrun_exchange_(d+)/, async (ctx) => {
     const successMsg = "🎉 <b>ဆုလက်ဆောင် လဲလှယ်ခြင်း အောင်မြင်ပါသည်။</b>\n\n" + (res.description || "Reward sent to user");
     await ctx.editMessageText(successMsg, { parse_mode: 'HTML' });
   } else {
-    const errorMsg = res?.message || res?.description || "လဲလှယ်ရန် ဒင်္ဂါး မလုံလောက်ပါ။";
+    const errorMsg = res?.message || res?.description || "လဲလှယ်ရန် Diamond မလုံလောက်ပါ။";
     await ctx.editMessageText("❌ " + errorMsg);
   }
 });
