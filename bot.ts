@@ -1184,8 +1184,10 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   
   // Simulate visiting the Point Dashboard and Campaign list first. This initializes the daily point availability on ATOM's servers.
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  
+  
+  
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
-  await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/dashboard?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/campaign-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
   // Extra endpoints to trigger Daily Point Checkin initialization on ATOM side
@@ -1195,6 +1197,16 @@ bot.hears('🎁 Daily Point Claim', async (ctx) => {
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/daily-checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   await authApiGet(ctx.from.id, `/mytmapi/v1/my/point-system/checkin-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/checkin-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
+  
+  // Attempt POST to initialize daily checkin
+  await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/check-in?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {});
+  await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/check-in?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {});
+  await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {});
+  await authApiPost(ctx.from.id, `/mytmapi/v2/my/point-system/checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {});
+  await authApiPost(ctx.from.id, `/mytmapi/v1/my/point-system/daily-checkin?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`, {});
+
+
+
   
   let listRes = await authApiGet(ctx.from.id, `/mytmapi/v2/my/point-system/claim-list?msisdn=${sess.msisdn}&userid=${sess.userId}&v=4.16.0&_t=${Date.now()}`);
   
@@ -1321,42 +1333,7 @@ bot.action(/claim_point_(.+)/, async (ctx) => {
   }
 });
 
-async function getCityRunSession(msisdn: string): Promise<string | null> {
-  try {
-    const res = await axios.get("https://cityrun.pro/ws/redirect/?AdNetwork=atom_app&ClickID=&Publisher=&msisdn=" + msisdn, {
-      httpsAgent: botHttpsAgent,
-      maxRedirects: 0,
-      validateStatus: () => true,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store"
-      }
-    });
-    const setCookie = res.headers['set-cookie'];
-    if (setCookie && setCookie.length > 0) {
-      const match = setCookie[0].match(/ci_session=([^;]+)/);
-      if (match) return match[1];
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-async function cityRunPlayGame(ciSession: string) {
-  try {
-    await axios.get('https://cityrun.pro/playgame', {
-      httpsAgent: botHttpsAgent,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
-        "X-Requested-With": "mm.com.atom.store",
-        "Cookie": "ci_session=" + ciSession
-      }
-    });
-  } catch (e) {}
-}
-
-async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
+async function cityRunApiPost(endpoint: string, body: any) {
   try {
     const headers: any = {
       "User-Agent": "Mozilla/5.0 (Linux; Android 12; Redmi K30 5G Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/149.0.7827.91 Mobile Safari/537.36",
@@ -1366,9 +1343,7 @@ async function cityRunApiPost(endpoint: string, body: any, ciSession?: string) {
       "Origin": "https://cityrun.pro",
       "X-Requested-With": "mm.com.atom.store",
     };
-    if (ciSession) {
-      headers["Cookie"] = "ci_session=" + ciSession;
-    }
+    
     const res = await axios({
       httpsAgent: botHttpsAgent,
       method: "POST",
@@ -1390,9 +1365,7 @@ bot.hears('🏃 City Run ကူပွန်', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run အချက်အလက်များကို ရယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1434,8 +1407,7 @@ bot.hears('🏃 City Run ဆော့ရန်', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run အချက်အလက် ယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1467,13 +1439,9 @@ bot.action('cityrun_play_auto', async (ctx) => {
   await ctx.answerCbQuery();
   
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
   
-  if (ciSession) {
-    await cityRunPlayGame(ciSession);
-  }
   
-  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  const checkRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   if (!checkRes || checkRes.status !== 'success') {
     return ctx.editMessageText("❌ ဆာဗာအခက်အခဲကြောင့် ကစား၍မရသေးပါ။");
   }
@@ -1521,7 +1489,7 @@ bot.action('cityrun_play_auto', async (ctx) => {
     
     await new Promise(r => setTimeout(r, waitTime));
     
-    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score }, ciSession || undefined);
+    const claimRes = await cityRunApiPost('/claimMysteryBox', { user_id: b64UserId, score: score });
     lastScore = score;
     
     if (claimRes && claimRes.status === 'success') {
@@ -1550,9 +1518,7 @@ bot.hears('💎 City Run Diamond Exchange', async (ctx) => {
   
   const waitMsg = await ctx.reply("⏳ City Run Diamond Exchange အချက်အလက် ယူနေပါတယ်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
-  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+  const res = await cityRunApiPost('/getUserData', { user_id: b64UserId });
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
@@ -1608,14 +1574,12 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
   await ctx.answerCbQuery();
   const waitMsg = await ctx.reply("⏳ ရှိသမျှ Diamond များကို အများဆုံး Runs ရအောင် အလိုအလျောက် လဲလှယ်နေပါသည်...");
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  
   let totalSpent = 0;
   let totalRunsGained = 0;
   let keepRedeeming = true;
   
   while (keepRedeeming) {
-    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId }, ciSession || undefined);
+    const dataRes = await cityRunApiPost('/getUserData', { user_id: b64UserId });
     if (!dataRes || dataRes.status !== 'success') break;
     
     let currentCoins = Number(dataRes.data?.user_coins || 0);
@@ -1631,7 +1595,7 @@ bot.action('cityrun_exchange_auto', async (ctx) => {
     }
     
     const bestOption = affordableOptions[0];
-    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id }, ciSession || undefined);
+    const redeemRes = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: bestOption.coins_id });
     
     if (redeemRes && redeemRes.status === 'success') {
        totalSpent += Number(bestOption.coins_threshold_value);
@@ -1660,8 +1624,7 @@ bot.action(/cityrun_exchange_(d+)/, async (ctx) => {
   const waitMsg = await ctx.reply("⏳ ဆုလက်ဆောင် လဲလှယ်နေပါသည်...");
   
   const b64UserId = Buffer.from(sess.userId.toString()).toString('base64');
-  const ciSession = await getCityRunSession(sess.msisdn);
-  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId }, ciSession || undefined);
+  const res = await cityRunApiPost('/processCoinsRedemption', { user_id: b64UserId, option_id: optionId });
   
   await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   
